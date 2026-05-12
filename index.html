@@ -651,7 +651,7 @@ function App(){
               <div style={{marginTop:10,padding:12,background:"white",borderRadius:10,border:`1.5px solid ${P.greenLight}`}}>
                 <p style={{margin:"0 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>✅ When was it given?</p>
                 <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
-                <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} placeholder="Optional" style={{marginBottom:10,WebkitAppearance:"none"}}/>
+                <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} max={new Date().toISOString().split("T")[0]} placeholder="Optional" aria-label="Date vaccine was given" style={{marginBottom:10,WebkitAppearance:"none"}}/>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>confirmMarkDone(v.id)} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
                     {markingDoneId===v.id?"Confirming...":"Confirm ✓"}
@@ -750,7 +750,7 @@ function App(){
             <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.pinkDark}}>New child profile 🎉</p>
             <input placeholder="Child's name *" value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} style={{marginBottom:8}}/>
             <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Date of birth *</label>
-            <input type="date" value={newP.dob} onChange={e=>setNewP({...newP,dob:e.target.value})} style={{marginBottom:12,WebkitAppearance:"none"}}/>
+            <input type="date" value={newP.dob} onChange={e=>setNewP({...newP,dob:e.target.value})} max={new Date().toISOString().split("T")[0]} aria-label="Child date of birth" style={{marginBottom:12,WebkitAppearance:"none"}}/>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
               <div style={{width:56,height:56,borderRadius:"50%",border:`2px dashed ${P.pink}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,overflow:"hidden",flexShrink:0,background:P.pinkLight}}>
                 {newP.photo?<img src={newP.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:newP.avatar}
@@ -847,7 +847,7 @@ function App(){
             <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.purpleDark}}>Edit profile ✏️</p>
             <input placeholder="Child's name *" value={editProfile.name} onChange={e=>setEditProfile({...editProfile,name:e.target.value})} style={{marginBottom:8}}/>
             <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Date of birth *</label>
-            <input type="date" value={editProfile.dob} onChange={e=>setEditProfile({...editProfile,dob:e.target.value})} style={{marginBottom:12,WebkitAppearance:"none"}}/>
+            <input type="date" value={editProfile.dob} onChange={e=>setEditProfile({...editProfile,dob:e.target.value})} max={new Date().toISOString().split("T")[0]} aria-label="Child date of birth" style={{marginBottom:12,WebkitAppearance:"none"}}/>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
               <div style={{width:52,height:52,borderRadius:"50%",border:`2px dashed ${P.purple}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,overflow:"hidden",flexShrink:0,background:P.purpleLight}}>
                 {editProfile.photo?<img src={editProfile.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:editProfile.avatar}
@@ -904,7 +904,7 @@ function App(){
             <p style={{margin:"0 0 10px",fontWeight:700,fontSize:14,color:P.purpleDark}}>Add custom vaccine 💜</p>
             <input placeholder="Vaccine name *" value={newV.name} onChange={e=>setNewV({...newV,name:e.target.value})} style={{marginBottom:8}}/>
             <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Due date *</label>
-            <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} style={{marginBottom:8,WebkitAppearance:"none"}}/>
+            <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} min={sel.dob} aria-label="Vaccine due date" style={{marginBottom:8,WebkitAppearance:"none"}}/>
             <input placeholder="Notes (optional)" value={newV.notes} onChange={e=>setNewV({...newV,notes:e.target.value})} style={{marginBottom:12}}/>
             <div style={{display:"flex",gap:8}}>
               <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate||addingCustom} aria-label="Add custom vaccine" style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate||addingCustom)?0.6:1}}>
