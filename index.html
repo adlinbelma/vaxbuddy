@@ -224,6 +224,22 @@ function generateVaccinePDF(profile,vaccines){
     doc.text(doneDate,margin+100,yPos);
     doc.text(type,margin+170,yPos);
     yPos+=6;
+
+    // Add OCR vaccine data if available in notes
+    if(v.notes){
+      doc.setFont("helvetica","normal");
+      doc.setFontSize(8);
+      doc.setTextColor(75,85,99); // darker gray
+      const notesText=doc.splitTextToSize(v.notes,contentWidth-4);
+      notesText.forEach(line=>{
+        if(yPos>pageHeight-20){
+          doc.addPage();
+          yPos=15;
+        }
+        doc.text(line,margin+4,yPos);
+        yPos+=4;
+      });
+    }
   });
 
   // Footer
@@ -445,6 +461,7 @@ function App(){
   const[markingDoneId,setMarkingDoneId]=React.useState(null);
   const[deletingId,setDeletingId]=React.useState(null);
   const[menuOpen,setMenuOpen]=React.useState(false);
+  const menuRef=React.useRef(null);
   const[ocrImage,setOcrImage]=React.useState(null);
   const[ocrData,setOcrData]=React.useState(null);
   const[ocrLoading,setOcrLoading]=React.useState(false);
@@ -453,7 +470,7 @@ function App(){
   const sel=profiles.find(p=>p.id===selId);
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
-  function errToast(msg){showToast("❌ "+msg,"error");}
+  function errToast(msg){showToast(msg,"error");}
 
   // FIX #4: Handle session expiry globally
   React.useEffect(()=>{
@@ -492,6 +509,18 @@ function App(){
     }
   },[session]);
 
+  React.useEffect(()=>{
+    const handleClickOutside=(e)=>{
+      if(menuRef.current&&!menuRef.current.contains(e.target)){
+        setMenuOpen(false);
+      }
+    };
+    if(menuOpen){
+      document.addEventListener("click",handleClickOutside);
+      return()=>document.removeEventListener("click",handleClickOutside);
+    }
+  },[menuOpen]);
+
   async function loadProfiles(uid){
     setLoading(true);
     const res=await dbRun(()=>sb.from("profiles").select("*").eq("user_id",uid).order("created_at"),errToast);
@@ -527,7 +556,7 @@ function App(){
     setAuthLoading(true);setAuthErr("");
     const{error}=await sb.auth.signUp({email,password});
     if(error)setAuthErr(error.message);
-    else setAuthErr("✅ Check your email to confirm your account, then log in.");
+    else setAuthErr("Check your email to confirm your account, then log in.");
     setAuthLoading(false);
   }
   async function resendConfirmation(){
@@ -535,7 +564,7 @@ function App(){
     setAuthLoading(true);
     const{error}=await sb.auth.resend({type:"signup",email});
     if(error)setAuthErr(error.message);
-    else setAuthErr("✅ Confirmation email sent! Check your inbox.");
+    else setAuthErr("Confirmation email sent! Check your inbox.");
     setAuthLoading(false);
   }
   async function signOut(){await sb.auth.signOut();}
@@ -568,7 +597,7 @@ function App(){
       localStorage.removeItem(LOCAL_KEY);
       setLocalData(null);
       await loadProfiles(session.user.id);
-      showToast("✅ Local data imported successfully!");
+      showToast("Local data imported successfully!");
     }catch(e){errToast(e.message||"Import failed");}
     setMigrating(false);
   }
@@ -794,9 +823,6 @@ function App(){
     return(
       <div style={{background:"white",border:`1.5px solid ${st.bg==="#F1F5F9"?"#F1F5F9":st.bg}`,borderRadius:14,marginBottom:8,overflow:"hidden"}}>
         <div onClick={()=>setExpanded(isExp?null:v.id)} style={{padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
-          <div style={{width:36,height:36,borderRadius:10,background:st.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}} aria-label={v.done?"Completed":st.type==="overdue"?"Overdue":st.type==="today"?"Due today":st.type==="soon"?"Due soon":"Upcoming"}>
-            {v.done?"✅":st.type==="overdue"?"🔴":st.type==="today"?"🚨":st.type==="soon"?"⏰":"💉"}
-          </div>
           <div style={{flex:1,minWidth:0}}>
             <p style={{margin:0,fontWeight:600,fontSize:13,color:"#1E293B",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.name}</p>
             <div style={{display:"flex",gap:6,alignItems:"center",marginTop:3,flexWrap:"wrap"}}>
@@ -809,11 +835,11 @@ function App(){
         </div>
         {isExp&&(
           <div style={{borderTop:"1px solid #F1F5F9",padding:"10px 14px",background:"#FAFBFC"}}>
-            {v.notes&&<p style={{margin:"0 0 6px",fontSize:12,color:"#64748B"}}>📝 {v.notes}</p>}
-            {!v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:"#64748B"}}>📅 Due: {new Date(v.due_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}</p>}
-            {v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:P.green}}>✅ Given on {new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</p>}
+            {v.notes&&<p style={{margin:"0 0 6px",fontSize:12,color:"#64748B"}}>{v.notes}</p>}
+            {!v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:"#64748B"}}>Due: {new Date(v.due_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}</p>}
+            {v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:P.green}}>Given on {new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</p>}
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {!v.done&&markingDone!==v.id&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done ✓</button>}
+              {!v.done&&markingDone!==v.id&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done</button>}
               {v.done&&<button onClick={()=>markUndone(v.id)} aria-label={`Undo marking ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
               {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} aria-label={`Delete custom vaccine ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1}}>
                 {deletingId===v.id?"Deleting...":"Delete"}
@@ -821,9 +847,9 @@ function App(){
             </div>
             {markingDone===v.id&&(
               <div style={{marginTop:10,padding:12,background:"white",borderRadius:10,border:`1.5px solid ${P.greenLight}`}}>
-                <p style={{margin:"0 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>✅ When was it given?</p>
+                <p style={{margin:"0 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>When was it given?</p>
                 <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
-                <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} max={new Date().toISOString().split("T")[0]} placeholder="Optional" aria-label="Date vaccine was given" style={{marginBottom:10,WebkitAppearance:"none"}}/>
+                <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} max={new Date().toISOString().split("T")[0]} placeholder="dd/mm/yyyy" aria-label="Date vaccine was given" title="Date vaccine was given (optional)" style={{marginBottom:10,WebkitAppearance:"none",fontSize:"16px"}}/>
                 <div style={{display:"flex",gap:6,marginBottom:10}}>
                   <input type="file" accept="image/*" onChange={(e)=>{
                     const file=e.target?.files?.[0];
@@ -873,11 +899,11 @@ function App(){
                     e.preventDefault();
                     const input=e.currentTarget.parentElement?.querySelector('input[type="file"]');
                     if(input)input.click();
-                  }} aria-label="📸 Add Photo - Upload vaccine image" style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Add Photo</button>
+                  }} aria-label="Add Photo - Upload vaccine image" style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Add Photo</button>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>confirmMarkDone(v.id)} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
-                    {markingDoneId===v.id?"Confirming...":"Confirm ✓"}
+                    {markingDoneId===v.id?"Confirming...":"Confirm"}
                   </button>
                   <button onClick={()=>{setMarkingDone(null);setGivenDate("");setOcrImage(null);setOcrData(null);}} disabled={markingDoneId===v.id} aria-label="Cancel marking vaccine as done" style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
                 </div>
@@ -908,7 +934,7 @@ function App(){
             <p style={{margin:"0 0 4px",fontWeight:700,fontSize:13,color:P.purpleDark}}>📦 Local data found!</p>
             <p style={{margin:"0 0 10px",fontSize:12,color:P.purple}}>{localData.profiles.length} child profile(s) on this device. Import to your account?</p>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={migrateLocalData} disabled={migrating} style={{flex:1,padding:"8px",borderRadius:10,background:P.purple,color:"white",fontWeight:700,fontSize:12}}>{migrating?"Importing...":"Yes, import ✨"}</button>
+              <button onClick={migrateLocalData} disabled={migrating} style={{flex:1,padding:"8px",borderRadius:10,background:P.purple,color:"white",fontWeight:700,fontSize:12}}>{migrating?"Importing...":"Yes, import"}</button>
               <button onClick={()=>{setLocalData(null);localStorage.removeItem(LOCAL_KEY);}} style={{padding:"8px 12px",borderRadius:10,background:"white",color:"#64748B",fontSize:12}}>Discard</button>
             </div>
           </div>
@@ -950,9 +976,9 @@ function App(){
                 </div>
               </div>
               <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
-                {overdue>0&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600}}>🔴 {overdue} overdue</span>}
+                {overdue>0&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600}}>{overdue} overdue</span>}
                 {soon>0&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.yellowLight,color:P.yellowDark,fontWeight:600}}>⏰ {soon} this week</span>}
-                <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.greenLight,color:P.greenDark,fontWeight:600}}>✅ {done} done</span>
+                <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.greenLight,color:P.greenDark,fontWeight:600}}>{done} done</span>
               </div>
             </div>
           );
@@ -970,17 +996,17 @@ function App(){
 
         {showAdd&&(
           <div style={{background:"white",border:`2px dashed ${P.pink}`,borderRadius:18,padding:16,marginTop:10}}>
-            <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.pinkDark}}>New child profile 🎉</p>
+            <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.pinkDark}}>New child profile</p>
             <input placeholder="Child's name *" value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} style={{marginBottom:8}}/>
             <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Date of birth *</label>
-            <input type="date" value={newP.dob} onChange={e=>setNewP({...newP,dob:e.target.value})} max={new Date().toISOString().split("T")[0]} aria-label="Child date of birth" style={{marginBottom:12,WebkitAppearance:"none"}}/>
+            <input type="date" value={newP.dob} onChange={e=>setNewP({...newP,dob:e.target.value})} max={new Date().toISOString().split("T")[0]} aria-label="Child date of birth" title="Child's date of birth" style={{marginBottom:12,WebkitAppearance:"none",fontSize:"16px"}}/>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
               <div style={{width:56,height:56,borderRadius:"50%",border:`2px dashed ${P.pink}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,overflow:"hidden",flexShrink:0,background:P.pinkLight}}>
                 {newP.photo?<img src={newP.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:newP.avatar}
               </div>
               <div style={{flex:1}}>
                 <label style={{display:"block",padding:"8px 14px",borderRadius:12,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontWeight:600,fontSize:12,textAlign:"center",cursor:"pointer"}}>
-                  📷 Upload photo
+                  Upload photo
                   <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
                     const f=e.target.files[0];if(!f)return;
                     setNewP(prev=>({...prev,photoFile:f}));
@@ -999,7 +1025,7 @@ function App(){
             <div style={{display:"flex",gap:8}}>
               <button onClick={addProfile} disabled={saving||!newP.name||!newP.dob} aria-label="Create child profile"
                 style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontWeight:700,opacity:(saving||!newP.name||!newP.dob)?0.6:1}}>
-                {saving?"Saving...":"Create profile ✨"}
+                {saving?"Saving...":"Create profile"}
               </button>
               <button onClick={()=>{setShowAdd(false);setNewP({name:"",dob:"",avatar:"🐶",photo:null,photoFile:null});}} aria-label="Cancel adding profile" style={{padding:"10px 16px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
             </div>
@@ -1027,9 +1053,9 @@ function App(){
     });
     const customFuture=future.filter(v=>v.age_months==null);
     const TABS=[
-      {key:"upcoming",label:"⏰ Due soon",count:overdue.length+upcoming7.length},
-      {key:"all",label:"📋 All",count:allVax.length},
-      {key:"done",label:"✅ Done",count:done.length},
+      {key:"upcoming",label:"Due soon",count:overdue.length+upcoming7.length},
+      {key:"all",label:"All",count:allVax.length},
+      {key:"done",label:"Done",count:done.length},
     ];
     return(
       <div style={{padding:"0.75rem 1rem 3rem",fontFamily:"system-ui,sans-serif"}}>
@@ -1044,21 +1070,18 @@ function App(){
             <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1E293B"}}>{sel.name}</p>
             <p style={{margin:0,fontSize:11,color:"#94A3B8"}}>Born {new Date(sel.dob).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
           </div>
-          <div style={{position:"relative"}}>
+          <div ref={menuRef} style={{position:"relative"}}>
             <button onClick={()=>setMenuOpen(!menuOpen)} aria-label="Actions menu" aria-expanded={menuOpen} style={{padding:"6px 10px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:16}}>⋮</button>
             {menuOpen&&(
               <div style={{position:"absolute",top:"100%",right:0,marginTop:6,background:"white",border:`1.5px solid ${P.purpleLight}`,borderRadius:12,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",zIndex:1000,minWidth:160}} role="menu">
                 <button onClick={()=>{const completedVaxes=sel.vaccines.filter(v=>v.done).sort((a,b)=>new Date(b.done_date)-new Date(a.done_date));generateVaccinePDF(sel,completedVaxes);setMenuOpen(false);}} aria-label="Export vaccination record as PDF" role="menuitem" style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#1E293B",fontWeight:500,borderBottom:`1px solid ${P.purpleLight}`}}>
-                  <span aria-hidden="true">📄</span>
                   <span>Export PDF</span>
                 </button>
                 <button onClick={()=>{setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null});setMenuOpen(false);}} disabled={deletingId===sel.id} aria-label="Edit child profile" role="menuitem" style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#1E293B",fontWeight:500,borderBottom:`1px solid ${P.purpleLight}`,opacity:deletingId===sel.id?0.5:1}}>
-                  <span aria-hidden="true">✏️</span>
                   <span>Edit Profile</span>
                 </button>
                 <button onClick={()=>{deleteProfile(sel.id);setMenuOpen(false);}} disabled={deletingId===sel.id} aria-label="Delete child profile permanently" role="menuitem" style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:P.redDark,fontWeight:500,opacity:deletingId===sel.id?0.5:1}}>
-                  <span aria-hidden="true">{deletingId===sel.id?"⏳":"🗑"}</span>
-                  <span>Delete Profile</span>
+                  <span>{deletingId===sel.id?"Deleting...":"Delete Profile"}</span>
                 </button>
               </div>
             )}
@@ -1067,10 +1090,10 @@ function App(){
 
         {editProfile&&(
           <div style={{background:"white",border:`2px dashed ${P.purple}`,borderRadius:18,padding:16,marginBottom:16}}>
-            <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.purpleDark}}>Edit profile ✏️</p>
+            <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.purpleDark}}>Edit profile</p>
             <input placeholder="Child's name *" value={editProfile.name} onChange={e=>setEditProfile({...editProfile,name:e.target.value})} style={{marginBottom:8}}/>
             <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Date of birth *</label>
-            <input type="date" value={editProfile.dob} onChange={e=>setEditProfile({...editProfile,dob:e.target.value})} max={new Date().toISOString().split("T")[0]} aria-label="Child date of birth" style={{marginBottom:12,WebkitAppearance:"none"}}/>
+            <input type="date" value={editProfile.dob} onChange={e=>setEditProfile({...editProfile,dob:e.target.value})} max={new Date().toISOString().split("T")[0]} aria-label="Child date of birth" title="Child's date of birth" style={{marginBottom:12,WebkitAppearance:"none",fontSize:"16px"}}/>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
               <div style={{width:52,height:52,borderRadius:"50%",border:`2px dashed ${P.purple}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,overflow:"hidden",flexShrink:0,background:P.purpleLight}}>
                 {editProfile.photo?<img src={editProfile.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:editProfile.avatar}
@@ -1092,11 +1115,11 @@ function App(){
                 <span key={a} onClick={()=>setEditProfile({...editProfile,avatar:a,photo:null,photoFile:null})} style={{fontSize:20,cursor:"pointer",width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:`2px solid ${!editProfile.photo&&editProfile.avatar===a?P.purple:"transparent"}`,background:!editProfile.photo&&editProfile.avatar===a?P.purpleLight:"#F8FAFC"}}>{a}</span>
               ))}
             </div>
-            {editProfile.dob!==sel.dob&&<div style={{background:P.yellowLight,borderRadius:10,padding:"8px 12px",marginBottom:12}}><p style={{margin:0,fontSize:12,color:P.yellowDark,fontWeight:600}}>⚠️ Changing DOB recalculates all IAP vaccine due dates. Custom vaccine dates are unchanged.</p></div>}
+            {editProfile.dob!==sel.dob&&<div style={{background:P.yellowLight,borderRadius:10,padding:"8px 12px",marginBottom:12}}><p style={{margin:0,fontSize:12,color:P.yellowDark,fontWeight:600}}>Changing DOB recalculates all IAP vaccine due dates. Custom vaccine dates are unchanged.</p></div>}
             <div style={{display:"flex",gap:8}}>
               <button onClick={saveEditProfile} disabled={saving||!editProfile.name||!editProfile.dob} aria-label="Save profile changes"
                 style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(saving||!editProfile.name||!editProfile.dob)?0.6:1}}>
-                {saving?"Saving...":"Save changes ✓"}
+                {saving?"Saving...":"Save changes"}
               </button>
               <button onClick={()=>setEditProfile(null)} aria-label="Cancel profile edit" style={{padding:"10px 16px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
             </div>
@@ -1104,34 +1127,33 @@ function App(){
         )}
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
-          {[[overdue.length,"🔴","Overdue",P.redLight,P.redDark],[upcoming7.length,"⏰","This week",P.yellowLight,P.yellowDark],[done.length,"✅","Done",P.greenLight,P.greenDark]].map(([n,ic,lb,bg,tc])=>(
+          {[[overdue.length,"Overdue",P.redLight,P.redDark],[upcoming7.length,"This week",P.yellowLight,P.yellowDark],[done.length,"Done",P.greenLight,P.greenDark]].map(([n,lb,bg,tc])=>(
             <div key={lb} style={{background:bg,borderRadius:14,padding:"10px 6px",textAlign:"center"}}>
-              <p style={{margin:0,fontSize:18}}>{ic}</p>
               <p style={{margin:"2px 0",fontWeight:700,fontSize:20,color:tc}}>{n}</p>
               <p style={{margin:0,fontSize:10,color:tc,fontWeight:500}}>{lb}</p>
             </div>
           ))}
         </div>
 
-        <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}} role="tablist">
+        <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4,alignItems:"center"}} role="tablist">
           {TABS.map(t=>(
-            <button key={t.key} onClick={()=>setTab(t.key)} role="tab" aria-selected={tab===t.key} aria-label={`${t.label}, ${t.count} vaccines`} style={{padding:"7px 14px",borderRadius:20,whiteSpace:"nowrap",background:tab===t.key?`linear-gradient(135deg,${P.pink},${P.purple})`:"#F1F5F9",color:tab===t.key?"white":"#64748B",fontWeight:600,fontSize:12,boxShadow:tab===t.key?`0 3px 10px ${P.pink}44`:"none"}}>
+            <button key={t.key} onClick={()=>setTab(t.key)} role="tab" aria-selected={tab===t.key} aria-label={`${t.label}, ${t.count} vaccines`} style={{padding:"7px 14px",borderRadius:20,whiteSpace:"nowrap",background:tab===t.key?`linear-gradient(135deg,${P.pink},${P.purple})`:"#F1F5F9",color:tab===t.key?"white":"#64748B",fontWeight:600,fontSize:12,boxShadow:tab===t.key?`0 3px 10px ${P.pink}44`:"none",flexShrink:0}}>
               {t.label} ({t.count})
             </button>
           ))}
-          <button onClick={()=>setShowCustom(!showCustom)} aria-label="Add custom vaccine" style={{padding:"7px 14px",borderRadius:20,whiteSpace:"nowrap",background:P.purpleLight,color:P.purpleDark,fontWeight:600,fontSize:12,marginLeft:"auto"}}>+ Custom</button>
+          <button onClick={()=>setShowCustom(!showCustom)} aria-label="Add custom vaccine" style={{padding:"7px 14px",borderRadius:20,whiteSpace:"nowrap",background:P.purpleLight,color:P.purpleDark,fontWeight:600,fontSize:12,marginLeft:"auto",flexShrink:0}}>+ Custom</button>
         </div>
 
         {showCustom&&(
           <div style={{background:"white",border:`2px dashed ${P.purple}`,borderRadius:16,padding:14,marginBottom:14}}>
-            <p style={{margin:"0 0 10px",fontWeight:700,fontSize:14,color:P.purpleDark}}>Add custom vaccine 💜</p>
+            <p style={{margin:"0 0 10px",fontWeight:700,fontSize:14,color:P.purpleDark}}>Add custom vaccine</p>
             <input placeholder="Vaccine name *" value={newV.name} onChange={e=>setNewV({...newV,name:e.target.value})} style={{marginBottom:8}}/>
             <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Due date *</label>
-            <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} min={sel.dob} aria-label="Vaccine due date" style={{marginBottom:8,WebkitAppearance:"none"}}/>
+            <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} min={sel.dob} aria-label="Vaccine due date" title="Vaccine due date" style={{marginBottom:8,WebkitAppearance:"none",fontSize:"16px"}}/>
             <input placeholder="Notes (optional)" value={newV.notes} onChange={e=>setNewV({...newV,notes:e.target.value})} style={{marginBottom:12}}/>
             <div style={{display:"flex",gap:8}}>
               <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate||addingCustom} aria-label="Add custom vaccine" style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate||addingCustom)?0.6:1}}>
-                {addingCustom?"Adding...":"Add ✨"}
+                {addingCustom?"Adding...":"Add custom"}
               </button>
               <button onClick={()=>{setShowCustom(false);setNewV({name:"",dueDate:"",notes:""});}} disabled={addingCustom} aria-label="Cancel adding custom vaccine" style={{padding:"9px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",opacity:addingCustom?0.5:1}}>Cancel</button>
             </div>
@@ -1142,10 +1164,9 @@ function App(){
           <>
             {overdue.length>0&&<><p style={{margin:"0 0 8px",fontSize:12,fontWeight:700,color:P.redDark}}>🔴 OVERDUE</p>{overdue.map(v=><VaxCard key={v.id} v={v}/>)}</>}
             {upcoming7.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.yellowDark}}>⏰ THIS WEEK</p>{upcoming7.map(v=><VaxCard key={v.id} v={v}/>)}</>}
-            {upcoming30.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.tealDark}}>📅 THIS MONTH</p>{upcoming30.map(v=><VaxCard key={v.id} v={v}/>)}</>}
+            {upcoming30.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.tealDark}}>THIS MONTH</p>{upcoming30.map(v=><VaxCard key={v.id} v={v}/>)}</>}
             {overdue.length===0&&upcoming7.length===0&&upcoming30.length===0&&(
               <div style={{textAlign:"center",padding:"2rem 1rem"}}>
-                <p style={{fontSize:40}}>🎉</p>
                 <p style={{fontWeight:700,color:"#1E293B",margin:"8px 0 4px"}}>All clear!</p>
                 <p style={{fontSize:13,color:"#94A3B8"}}>No vaccines due soon</p>
               </div>
@@ -1175,7 +1196,7 @@ function App(){
         )}
         {tab==="all"&&allVax.map(v=><VaxCard key={v.id} v={v}/>)}
         {tab==="done"&&(done.length===0
-          ?<div style={{textAlign:"center",padding:"2rem"}}><p style={{fontSize:36}}>💉</p><p style={{color:"#94A3B8",fontSize:13}}>No vaccines marked done yet</p></div>
+          ?<div style={{textAlign:"center",padding:"2rem"}}><p style={{color:"#94A3B8",fontSize:13}}>No vaccines marked done yet</p></div>
           :done.map(v=><VaxCard key={v.id} v={v}/>)
         )}
         {ocrShowReview&&ocrData&&(
@@ -1240,7 +1261,7 @@ function App(){
                   <input type="text" value={ocrData.lotNumber||""} onChange={e=>setOcrData({...ocrData,lotNumber:e.target.value})} placeholder="e.g., LOT123" aria-label="Lot number"/>
                 </div>
 
-                <p style={{fontSize:11,color:"#94A3B8",margin:"8px 0 0"}}>✏️ You can edit any field before confirming</p>
+                <p style={{fontSize:11,color:"#94A3B8",margin:"8px 0 0"}}>You can edit any field before confirming</p>
 
                 <div style={{display:"flex",gap:8,marginTop:12}}>
                   <button onClick={()=>{
@@ -1252,7 +1273,7 @@ function App(){
                       setOcrError("");
                     }
                   }} disabled={!ocrData.vaccineName} aria-label="Confirm vaccine data and mark as done" style={{flex:1,padding:"10px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:!ocrData.vaccineName?0.6:1}}>
-                    Confirm ✓
+                    Confirm
                   </button>
                   <button onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}} aria-label="Cancel without saving extracted data" style={{padding:"10px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:13}}>Cancel</button>
                 </div>
