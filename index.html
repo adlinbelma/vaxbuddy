@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="VaxBuddy"/>
+<link rel="apple-touch-icon" href="https://i.ibb.co/8LrwgPbc/BCF2-E111-3-A8-C-4-DDF-B48-A-587-EAF49-C166.png"/>
+<link rel="icon" type="image/png" href="https://i.ibb.co/8LrwgPbc/BCF2-E111-3-A8-C-4-DDF-B48-A-587-EAF49-C166.png"/>
+<title>VaxBuddy</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+#root{max-width:480px;margin:0 auto;min-height:100vh;background:#F8FAFC;}
+input,select{border-radius:10px;border:1.5px solid #E2E8F0;padding:8px 12px;font-size:16px;width:100%;outline:none;background:white;color:#1e293b;}
+input:focus,select:focus{border-color:#A855F7;}
+button{cursor:pointer;border:none;outline:none;font-size:13px;font-weight:500;transition:transform 0.1s,opacity 0.1s;background:none;}
+button:active{transform:scale(0.96);opacity:0.85;}
+details summary::-webkit-details-marker{display:none;}
+.spinner{width:32px;height:32px;border:3px solid #F3E8FF;border-top:3px solid #A855F7;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{createClient}=supabase;
+const sb=createClient(
+  'https://iosptbalafogtbxvnqno.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlvc3B0YmFsYWZvZ3RieHZucW5vIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NTQ5OTQsImV4cCI6MjA5NDEzMDk5NH0.iSc6o836r9b5UhNE9mmK74omQwUrI2haDTzEq5yqTac'
+);
+
+const IAP=[
+  {id:"v1",name:"BCG",am:0,notes:"At birth"},
+  {id:"v2",name:"Hepatitis B (1st dose)",am:0,notes:"At birth"},
+  {id:"v3",name:"OPV (0)",am:0,notes:"At birth"},
+  {id:"v4",name:"DTP + Hib + IPV (1st)",am:1.5,notes:"6 weeks"},
+  {id:"v5",name:"Hepatitis B (2nd dose)",am:1.5,notes:"6 weeks"},
+  {id:"v6",name:"OPV (1st dose)",am:1.5,notes:"6 weeks"},
+  {id:"v7",name:"Rotavirus (1st dose)",am:1.5,notes:"6 weeks"},
+  {id:"v8",name:"PCV (1st dose)",am:1.5,notes:"6 weeks"},
+  {id:"v9",name:"DTP + Hib + IPV (2nd)",am:2.5,notes:"10 weeks"},
+  {id:"v10",name:"OPV (2nd dose)",am:2.5,notes:"10 weeks"},
+  {id:"v11",name:"Rotavirus (2nd dose)",am:2.5,notes:"10 weeks"},
+  {id:"v12",name:"DTP + Hib + IPV (3rd)",am:3.5,notes:"14 weeks"},
+  {id:"v13",name:"OPV (3rd dose)",am:3.5,notes:"14 weeks"},
+  {id:"v14",name:"Rotavirus (3rd dose)",am:3.5,notes:"14 weeks"},
+  {id:"v15",name:"PCV (2nd dose)",am:3.5,notes:"14 weeks"},
+  {id:"v16",name:"Influenza (1st dose)",am:6,notes:"6 months"},
+  {id:"v17",name:"Influenza (2nd dose)",am:7,notes:"7 months"},
+  {id:"v18",name:"Hepatitis B (3rd dose)",am:6,notes:"6 months"},
+  {id:"v19",name:"Typhoid Conjugate",am:9,notes:"9 months"},
+  {id:"v20",name:"MMR (1st dose)",am:9,notes:"9 months"},
+  {id:"v21",name:"PCV Booster",am:9,notes:"9 months"},
+  {id:"v22",name:"Varicella (1st dose)",am:12,notes:"12 months"},
+  {id:"v23",name:"Hepatitis A (1st dose)",am:12,notes:"12 months"},
+  {id:"v24",name:"DTP Booster 1 + IPV + Hib",am:15,notes:"15–18 months"},
+  {id:"v25",name:"MMR (2nd dose)",am:15,notes:"15 months"},
+  {id:"v26",name:"Varicella (2nd dose)",am:15,notes:"15 months"},
+  {id:"v27",name:"Hepatitis A (2nd dose)",am:18,notes:"18–24 months"},
+  {id:"v28",name:"Influenza (annual)",am:24,notes:"Every year"},
+  {id:"v29",name:"Typhoid Booster",am:24,notes:"Every 3 years"},
+  {id:"v30",name:"DTP Booster 2",am:48,notes:"4–6 years"},
+  {id:"v31",name:"OPV Booster",am:48,notes:"4–6 years"},
+  {id:"v32",name:"MMR (3rd dose)",am:60,notes:"5 years"},
+  {id:"v33",name:"Varicella (3rd dose)",am:60,notes:"5 years"},
+  {id:"v34",name:"Typhoid (repeat)",am:72,notes:"6 years"},
+  {id:"v35",name:"Tdap / DT Booster",am:84,notes:"7 years"},
+  {id:"v36",name:"HPV (1st dose)",am:108,notes:"9 years"},
+  {id:"v37",name:"HPV (2nd dose)",am:114,notes:"6 months after 1st"},
+  {id:"v38",name:"Tdap Booster",am:132,notes:"11–12 years"},
+  {id:"v39",name:"Influenza (teen annual)",am:132,notes:"Every year"},
+  {id:"v40",name:"MCV4 (Meningococcal)",am:132,notes:"11–12 years"},
+  {id:"v41",name:"Typhoid (teen)",am:144,notes:"12 years"},
+  {id:"v42",name:"Hepatitis A (teen)",am:144,notes:"If not given earlier"},
+  {id:"v43",name:"MCV4 Booster",am:192,notes:"16 years"},
+  {id:"v44",name:"HPV (3rd dose)",am:192,notes:"16 years"},
+  {id:"v45",name:"Influenza (16–18)",am:204,notes:"Every year"},
+];
+
+const AVATARS=["🐶","🐱","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🦋","🌟","🌈","🦄"];
+const P={
+  pink:"#FF6B9D",pinkLight:"#FFE4F0",pinkDark:"#C94F7C",
+  purple:"#A855F7",purpleLight:"#F3E8FF",purpleDark:"#7C3AED",
+  teal:"#06B6D4",tealLight:"#E0F9FF",tealDark:"#0891B2",
+  yellow:"#F59E0B",yellowLight:"#FFF8E1",yellowDark:"#D97706",
+  green:"#10B981",greenLight:"#D1FAE5",greenDark:"#059669",
+  red:"#EF4444",redLight:"#FEE2E2",redDark:"#DC2626",
+  orange:"#F97316",orangeLight:"#FFF0E6",
+};
+
+// ── Helpers ──
+function uid(){return crypto.randomUUID();}
+function calcDue(dob,am){
+  const d=new Date(dob),w=Math.floor(am),f=am-w;
+  d.setMonth(d.getMonth()+w);
+  if(f>0)d.setDate(d.getDate()+Math.round(f*30));
+  return d.toISOString().split("T")[0];
+}
+function getAgeLabel(m){
+  if(m===0)return"Birth";if(m<1)return`${Math.round(m*4)}w`;
+  if(m<12)return`${m}m`;
+  const y=Math.floor(m/12),mo=Math.round(m%12);
+  return mo>0?`${y}y ${mo}m`:`${y}y`;
+}
+function getStatus(due,done){
+  if(done)return{type:"done",label:"Done",color:P.green,bg:P.greenLight};
+  const t=new Date();t.setHours(0,0,0,0);
+  const d=new Date(due);d.setHours(0,0,0,0);
+  const diff=Math.round((d-t)/86400000);
+  if(diff<0)return{type:"overdue",label:`${Math.abs(diff)}d overdue`,color:P.red,bg:P.redLight,diff};
+  if(diff===0)return{type:"today",label:"Due today!",color:P.orange,bg:P.orangeLight,diff};
+  if(diff<=7)return{type:"soon",label:`In ${diff}d`,color:P.yellow,bg:P.yellowLight,diff};
+  if(diff<=30)return{type:"upcoming",label:`In ${diff}d`,color:P.teal,bg:P.tealLight,diff};
+  return{type:"future",label:new Date(due).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}),color:"#94A3B8",bg:"#F1F5F9",diff};
+}
+function fireConfetti(){
+  const c=["#FF6B9D","#A855F7","#06B6D4","#F59E0B","#10B981"];
+  confetti({particleCount:120,spread:80,origin:{y:0.6},colors:c});
+  setTimeout(()=>confetti({particleCount:60,spread:120,origin:{y:0.5},colors:c}),200);
+}
+
+// FIX #12: Only fire notifications once per session per vaccine
+const notifiedThisSession=new Set();
+function scheduleReminders(vaccines,childName){
+  if(!("Notification"in window)||Notification.permission!=="granted")return;
+  vaccines.forEach(v=>{
+    if(v.done)return;
+    const key=v.id+":"+new Date().toDateString();
+    if(notifiedThisSession.has(key))return;
+    const st=getStatus(v.due_date,false);
+    if(["overdue","today","soon"].includes(st.type)){
+      const body=st.type==="overdue"?`${v.name} is ${st.label}!`:
+                 st.type==="today"?`${v.name} is due today!`:
+                 `${v.name} due in ${st.diff} days`;
+      new Notification(`💉 ${childName}`,{body,icon:"https://i.ibb.co/8LrwgPbc/BCF2-E111-3-A8-C-4-DDF-B48-A-587-EAF49-C166.png"});
+      notifiedThisSession.add(key);
+    }
+  });
+}
+
+const LOCAL_KEY="vaxbuddy_local_v1";
+function getLocal(){try{const r=localStorage.getItem(LOCAL_KEY);return r?JSON.parse(r):null;}catch{return null;}}
+
+// ── Supabase helpers with error handling ──
+async function dbRun(fn,onErr){
+  try{
+    const res=await fn();
+    if(res.error)throw res.error;
+    return res;
+  }catch(e){
+    console.error(e);
+    if(onErr)onErr(e.message||"Something went wrong");
+    return null;
+  }
+}
+
+// FIX #5: Get signed URL for private photo
+async function getSignedUrl(path){
+  if(!path)return null;
+  if(path.startsWith("http")&&!path.includes("/object/sign/"))return path; // already public legacy
+  const{data}=await sb.storage.from("photos").createSignedUrl(path,3600);
+  return data?.signedUrl||null;
+}
+
+function App(){
+  const[session,setSession]=React.useState(null);
+  const[authChecked,setAuthChecked]=React.useState(false);
+  const[loading,setLoading]=React.useState(true);
+  const[view,setView]=React.useState("home");
+  const[profiles,setProfiles]=React.useState([]);
+  const[selId,setSelId]=React.useState(null);
+  const[tab,setTab]=React.useState("upcoming");
+  const[expanded,setExpanded]=React.useState(null);
+  const[showAdd,setShowAdd]=React.useState(false);
+  const[showCustom,setShowCustom]=React.useState(false);
+  const[editProfile,setEditProfile]=React.useState(null);
+  const[markingDone,setMarkingDone]=React.useState(null);
+  const[givenDate,setGivenDate]=React.useState("");
+  const[newP,setNewP]=React.useState({name:"",dob:"",avatar:"🐶",photo:null,photoFile:null});
+  const[newV,setNewV]=React.useState({name:"",dueDate:"",notes:""});
+  const[authMode,setAuthMode]=React.useState("login");
+  const[email,setEmail]=React.useState("");
+  const[password,setPassword]=React.useState("");
+  const[authErr,setAuthErr]=React.useState("");
+  const[authLoading,setAuthLoading]=React.useState(false);
+  const[localData,setLocalData]=React.useState(null);
+  const[saving,setSaving]=React.useState(false);
+  const[toast,setToast]=React.useState(null);
+  const[migrating,setMigrating]=React.useState(false);
+  const sel=profiles.find(p=>p.id===selId);
+
+  function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
+  function errToast(msg){showToast("❌ "+msg,"error");}
+
+  // FIX #4: Handle session expiry globally
+  React.useEffect(()=>{
+    sb.auth.getSession().then(({data:{session}})=>{
+      setSession(session);setAuthChecked(true);
+      if(session)loadProfiles(session.user.id);
+      else setLoading(false);
+    });
+    const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{
+      if(event==="SIGNED_OUT"||event==="TOKEN_REFRESHED"&&!session){
+        setSession(null);setProfiles([]);setLoading(false);setView("home");
+        showToast("Session expired. Please log in again.","error");
+      }else{
+        setSession(session);
+        if(session)loadProfiles(session.user.id);
+        else setLoading(false);
+      }
+    });
+    return()=>subscription.unsubscribe();
+  },[]);
+
+  React.useEffect(()=>{
+    if(session){
+      const local=getLocal();
+      if(local?.profiles?.length>0)setLocalData(local);
+    }
+  },[session]);
+
+  React.useEffect(()=>{
+    if(session&&"Notification"in window&&Notification.permission==="default"){
+      Notification.requestPermission();
+    }
+  },[session]);
+
+  async function loadProfiles(uid){
+    setLoading(true);
+    const res=await dbRun(()=>sb.from("profiles").select("*").eq("user_id",uid).order("created_at"),errToast);
+    if(!res){setLoading(false);return;}
+    const profs=res.data||[];
+    const full=await Promise.all(profs.map(async p=>{
+      const vres=await dbRun(()=>sb.from("vaccines").select("*").eq("profile_id",p.id).order("age_months"),errToast);
+      // FIX #5: resolve signed URLs for private photos
+      let photoUrl=null;
+      if(p.photo_url){
+        photoUrl=p.photo_url.startsWith("data:")?p.photo_url:await getSignedUrl(p.photo_url).catch(()=>p.photo_url);
+      }
+      return{...p,photo_url:photoUrl,vaccines:vres?.data||[]};
+    }));
+    setProfiles(full);
+    setLoading(false);
+    if(Notification.permission==="granted")full.forEach(p=>scheduleReminders(p.vaccines,p.name));
+  }
+
+  // FIX #3: Check email confirmed
+  async function signIn(){
+    setAuthLoading(true);setAuthErr("");
+    const{data,error}=await sb.auth.signInWithPassword({email,password});
+    if(error){setAuthErr(error.message);setAuthLoading(false);return;}
+    if(data.user&&!data.user.email_confirmed_at){
+      await sb.auth.signOut();
+      setAuthErr("Please confirm your email before logging in.");
+      setAuthLoading(false);return;
+    }
+    setAuthLoading(false);
+  }
+  async function signUp(){
+    setAuthLoading(true);setAuthErr("");
+    const{error}=await sb.auth.signUp({email,password});
+    if(error)setAuthErr(error.message);
+    else setAuthErr("✅ Check your email to confirm your account, then log in.");
+    setAuthLoading(false);
+  }
+  async function resendConfirmation(){
+    if(!email){setAuthErr("Enter your email first");return;}
+    setAuthLoading(true);
+    const{error}=await sb.auth.resend({type:"signup",email});
+    if(error)setAuthErr(error.message);
+    else setAuthErr("✅ Confirmation email sent! Check your inbox.");
+    setAuthLoading(false);
+  }
+  async function signOut(){await sb.auth.signOut();}
+
+  // FIX #11: Check for existing profiles before migrating
+  async function migrateLocalData(){
+    if(!localData||!session||migrating)return;
+    setMigrating(true);
+    const{data:existing}=await sb.from("profiles").select("id").eq("user_id",session.user.id);
+    if(existing?.length>0){
+      showToast("Account already has data. Skipping import to avoid duplicates.","error");
+      setLocalData(null);localStorage.removeItem(LOCAL_KEY);setMigrating(false);return;
+    }
+    try{
+      for(const p of localData.profiles){
+        const{data:prof,error}=await sb.from("profiles").insert({
+          id:uid(),user_id:session.user.id,name:p.name,dob:p.dob,avatar:p.avatar,photo_url:null
+        }).select().single();
+        if(error)throw error;
+        if(prof){
+          const vaxRows=p.vaccines.map(v=>({
+            id:uid(),profile_id:prof.id,user_id:session.user.id,
+            name:v.name,due_date:v.dueDate,done:v.done,done_date:v.doneDate||null,
+            notes:v.notes||null,age_months:v.ageMonths,custom:v.custom||false,reminder_set:false,
+          }));
+          const{error:ve}=await sb.from("vaccines").insert(vaxRows);
+          if(ve)throw ve;
+        }
+      }
+      localStorage.removeItem(LOCAL_KEY);
+      setLocalData(null);
+      await loadProfiles(session.user.id);
+      showToast("✅ Local data imported successfully!");
+    }catch(e){errToast(e.message||"Import failed");}
+    setMigrating(false);
+  }
+
+  // FIX #2: Strict photo upload — fail hard, no base64 fallback to DB
+  async function uploadPhoto(file){
+    const ext=file.name.split(".").pop().toLowerCase();
+    const allowed=["jpg","jpeg","png","webp","heic"];
+    if(!allowed.includes(ext)){errToast("Unsupported image format");return null;}
+    if(file.size>5*1024*1024){errToast("Photo must be under 5MB");return null;}
+    const path=`${session.user.id}/${uid()}.${ext}`;
+    const{error}=await sb.storage.from("photos").upload(path,file,{upsert:true});
+    if(error){errToast("Photo upload failed: "+error.message);return null;}
+    return path; // store path, not public URL
+  }
+
+  async function addProfile(){
+    if(!newP.name.trim()||!newP.dob){showToast("Name and date of birth are required","error");return;}
+    setSaving(true);
+    try{
+      let photoPath=null;
+      if(newP.photoFile){
+        photoPath=await uploadPhoto(newP.photoFile);
+        if(newP.photoFile&&!photoPath){setSaving(false);return;} // upload failed
+      }
+      const profId=uid();
+      const{error}=await sb.from("profiles").insert({
+        id:profId,user_id:session.user.id,name:newP.name.trim(),
+        dob:newP.dob,avatar:newP.avatar,photo_url:photoPath
+      });
+      if(error)throw error;
+      const vaxRows=IAP.map(v=>({
+        id:uid(),profile_id:profId,user_id:session.user.id,
+        name:v.name,due_date:calcDue(newP.dob,v.am),done:false,
+        done_date:null,notes:v.notes,age_months:v.am,custom:false,reminder_set:false,
+      }));
+      const{error:ve}=await sb.from("vaccines").insert(vaxRows);
+      if(ve)throw ve;
+      setNewP({name:"",dob:"",avatar:"🐶",photo:null,photoFile:null});
+      setShowAdd(false);
+      await loadProfiles(session.user.id);
+      setSelId(profId);setView("child");
+      showToast("Profile created!");
+    }catch(e){errToast(e.message||"Failed to create profile");}
+    setSaving(false);
+  }
+
+  async function saveEditProfile(){
+    if(!editProfile.name.trim()||!editProfile.dob){showToast("Name and DOB required","error");return;}
+    setSaving(true);
+    try{
+      let photoPath=sel.photo_url||null;
+      if(editProfile.photoFile){
+        const p=await uploadPhoto(editProfile.photoFile);
+        if(!p){setSaving(false);return;}
+        photoPath=p;
+      }else if(editProfile.photo===null){
+        photoPath=null;
+      }
+      const dobChanged=editProfile.dob!==sel.dob;
+      const{error}=await sb.from("profiles").update({
+        name:editProfile.name.trim(),dob:editProfile.dob,
+        avatar:editProfile.avatar,photo_url:photoPath
+      }).eq("id",sel.id);
+      if(error)throw error;
+      if(dobChanged){
+        const updates=sel.vaccines.filter(v=>!v.custom).map(v=>
+          sb.from("vaccines").update({due_date:calcDue(editProfile.dob,v.age_months)}).eq("id",v.id)
+        );
+        const results=await Promise.all(updates);
+        const failed=results.find(r=>r.error);
+        if(failed)throw failed.error;
+      }
+      setEditProfile(null);
+      await loadProfiles(session.user.id);
+      showToast("Profile updated!");
+    }catch(e){errToast(e.message||"Failed to update profile");}
+    setSaving(false);
+  }
+
+  async function deleteProfile(id){
+    if(!confirm("Delete this profile and all vaccine data? This cannot be undone."))return;
+    try{
+      const{error}=await sb.from("profiles").delete().eq("id",id);
+      if(error)throw error;
+      setSelId(null);setView("home");
+      await loadProfiles(session.user.id);
+      showToast("Profile deleted");
+    }catch(e){errToast(e.message||"Failed to delete profile");}
+  }
+
+  // FIX #9: Confetti only after confirmed DB write
+  async function confirmMarkDone(vid){
+    const vaccine = sel.vaccines.find(v=>v.id===vid);
+    const today = new Date().toISOString().split("T")[0];
+    const dateToSave = givenDate && givenDate.trim() ? givenDate : (vaccine?.due_date || today);
+    try{
+      const{error}=await sb.from("vaccines").update({done:true,done_date:dateToSave,reminder_set:false}).eq("id",vid);
+      if(error)throw error;
+      fireConfetti(); // only fires after success
+      setMarkingDone(null);
+      setGivenDate(""); // clear the date field
+      // FIX #8: Optimistic local state update
+      setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,
+        vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:true,done_date:dateToSave,reminder_set:false})
+      }));
+    }catch(e){errToast(e.message||"Failed to update vaccine");}
+  }
+
+  async function markUndone(vid){
+    try{
+      const{error}=await sb.from("vaccines").update({done:false,done_date:null}).eq("id",vid);
+      if(error)throw error;
+      setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,
+        vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:false,done_date:null})
+      }));
+    }catch(e){errToast(e.message||"Failed to undo vaccine");}
+  }
+
+  // FIX #6: uuid for custom vaccine IDs
+  async function addCustomVaccine(){
+    if(!newV.name.trim()||!newV.dueDate){showToast("Name and due date required","error");return;}
+    try{
+      const vid=uid();
+      const{error}=await sb.from("vaccines").insert({
+        id:vid,profile_id:selId,user_id:session.user.id,
+        name:newV.name.trim(),due_date:newV.dueDate,notes:newV.notes||null,
+        done:false,custom:true,age_months:null,reminder_set:false,
+      });
+      if(error)throw error;
+      // FIX #8: optimistic update
+      setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,
+        vaccines:[...p.vaccines,{id:vid,profile_id:selId,name:newV.name.trim(),due_date:newV.dueDate,notes:newV.notes||null,done:false,custom:true,age_months:null,reminder_set:false}]
+      }));
+      setNewV({name:"",dueDate:"",notes:""});setShowCustom(false);
+      showToast("Custom vaccine added!");
+    }catch(e){errToast(e.message||"Failed to add vaccine");}
+  }
+
+  async function deleteCustomVaccine(vid){
+    if(!confirm("Delete this custom vaccine?"))return;
+    try{
+      const{error}=await sb.from("vaccines").delete().eq("id",vid);
+      if(error)throw error;
+      setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,vaccines:p.vaccines.filter(v=>v.id!==vid)}));
+      showToast("Vaccine deleted");
+    }catch(e){errToast(e.message||"Failed to delete vaccine");}
+  }
+
+  // ── Toast ──
+  const Toast=()=>toast?(
+    <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",
+      background:toast.type==="success"?P.green:P.red,color:"white",
+      padding:"10px 20px",borderRadius:20,fontSize:13,fontWeight:600,
+      zIndex:9999,boxShadow:"0 4px 12px rgba(0,0,0,0.2)",whiteSpace:"nowrap",maxWidth:"90vw",textAlign:"center"}}>
+      {toast.msg}
+    </div>
+  ):null;
+
+  // ── AUTH ──
+  if(authChecked&&!session){
+    return(
+      <div style={{padding:"2rem 1.5rem",fontFamily:"system-ui,sans-serif"}}>
+        <Toast/>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <img src="https://i.ibb.co/8LrwgPbc/BCF2-E111-3-A8-C-4-DDF-B48-A-587-EAF49-C166.png" style={{width:90,height:90,borderRadius:22,marginBottom:12,boxShadow:`0 8px 24px ${P.purple}44`}}/>
+          <h1 style={{fontSize:28,fontWeight:800,background:`linear-gradient(135deg,${P.pink},${P.purple})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>VaxBuddy</h1>
+          <p style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Birth to 18 years · IAP India schedule</p>
+        </div>
+        <div style={{background:"white",borderRadius:20,padding:24,boxShadow:"0 4px 20px rgba(0,0,0,0.08)"}}>
+          <div style={{display:"flex",gap:0,marginBottom:20,background:"#F1F5F9",borderRadius:12,padding:3}}>
+            {["login","signup"].map(m=>(
+              <button key={m} onClick={()=>{setAuthMode(m);setAuthErr("");}}
+                style={{flex:1,padding:"8px",borderRadius:10,fontWeight:700,fontSize:13,
+                  background:authMode===m?`linear-gradient(135deg,${P.pink},${P.purple})`:"transparent",
+                  color:authMode===m?"white":"#64748B",boxShadow:authMode===m?`0 2px 8px ${P.pink}44`:"none"}}>
+                {m==="login"?"Log In":"Sign Up"}
+              </button>
+            ))}
+          </div>
+          <input placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)} type="email" style={{marginBottom:10}}/>
+          <input placeholder="Password (min 6 chars)" value={password} onChange={e=>setPassword(e.target.value)} type="password" style={{marginBottom:16}}/>
+          {authErr&&<p style={{fontSize:12,color:authErr.startsWith("✅")?P.green:P.red,marginBottom:12,textAlign:"center",lineHeight:1.5}}>{authErr}</p>}
+          <button onClick={authMode==="login"?signIn:signUp} disabled={authLoading||!email||!password}
+            style={{width:"100%",padding:14,borderRadius:14,background:`linear-gradient(135deg,${P.pink},${P.purple})`,
+              color:"white",fontWeight:700,fontSize:15,boxShadow:`0 4px 14px ${P.pink}55`,opacity:(authLoading||!email||!password)?0.6:1}}>
+            {authLoading?"Please wait...":(authMode==="login"?"Log In 🚀":"Create Account ✨")}
+          </button>
+          {authMode==="login"&&authErr&&authErr.includes("email")&&(
+            <button onClick={resendConfirmation} disabled={authLoading} style={{width:"100%",marginTop:8,padding:10,borderRadius:14,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:13}}>
+              Resend confirmation email
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if(!authChecked||loading){
+    return(
+      <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",gap:16}}>
+        <div className="spinner"/>
+        <p style={{color:"#94A3B8",fontSize:13}}>Loading VaxBuddy...</p>
+      </div>
+    );
+  }
+
+  function VaxCard({v}){
+    const st=getStatus(v.due_date,v.done);
+    const isExp=expanded===v.id;
+    return(
+      <div style={{background:"white",border:`1.5px solid ${st.bg==="#F1F5F9"?"#F1F5F9":st.bg}`,borderRadius:14,marginBottom:8,overflow:"hidden"}}>
+        <div onClick={()=>setExpanded(isExp?null:v.id)} style={{padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:36,height:36,borderRadius:10,background:st.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>
+            {v.done?"✅":st.type==="overdue"?"🔴":st.type==="today"?"🚨":st.type==="soon"?"⏰":"💉"}
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <p style={{margin:0,fontWeight:600,fontSize:13,color:"#1E293B",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{v.name}</p>
+            <div style={{display:"flex",gap:6,alignItems:"center",marginTop:3,flexWrap:"wrap"}}>
+              <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:st.bg,color:st.color,fontWeight:600}}>{st.label}</span>
+              {v.age_months!=null&&<span style={{fontSize:11,color:"#94A3B8"}}>{getAgeLabel(v.age_months)}</span>}
+              {v.custom&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:6,background:P.purpleLight,color:P.purpleDark,fontWeight:600}}>custom</span>}
+            </div>
+          </div>
+          <span style={{color:"#CBD5E1",fontSize:14,display:"inline-block",transform:isExp?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▾</span>
+        </div>
+        {isExp&&(
+          <div style={{borderTop:"1px solid #F1F5F9",padding:"10px 14px",background:"#FAFBFC"}}>
+            {v.notes&&<p style={{margin:"0 0 6px",fontSize:12,color:"#64748B"}}>📝 {v.notes}</p>}
+            {!v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:"#64748B"}}>📅 Due: {new Date(v.due_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}</p>}
+            {v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:P.green}}>✅ Given on {new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</p>}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {!v.done&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12}}>Mark done ✓</button>}
+              {v.done&&<button onClick={()=>markUndone(v.id)} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
+              {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12}}>Delete</button>}
+            </div>
+            {markingDone===v.id&&(
+              <div style={{marginTop:10,padding:12,background:"white",borderRadius:10,border:`1.5px solid ${P.greenLight}`}}>
+                <p style={{margin:"0 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>✅ When was it given?</p>
+                <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
+                <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} placeholder="Optional" style={{marginBottom:10,WebkitAppearance:"none"}}/>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>confirmMarkDone(v.id)} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13}}>Confirm ✓</button>
+                  <button onClick={()=>{setMarkingDone(null);setGivenDate("");}} style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13}}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── HOME ──
+  if(view==="home"){
+    const totalOverdue=profiles.reduce((s,p)=>s+p.vaccines.filter(v=>!v.done&&new Date(v.due_date)<new Date()).length,0);
+    return(
+      <div style={{padding:"1.5rem 1rem 2rem",fontFamily:"system-ui,sans-serif"}}>
+        <Toast/>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+          <div>
+            <h1 style={{fontSize:24,fontWeight:800,background:`linear-gradient(135deg,${P.pink},${P.purple})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",margin:0}}>VaxBuddy 💉</h1>
+            <p style={{fontSize:12,color:"#94A3B8",margin:"2px 0 0"}}>{session.user.email}</p>
+          </div>
+          <button onClick={signOut} style={{padding:"6px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Log out</button>
+        </div>
+
+        {localData&&(
+          <div style={{background:P.purpleLight,border:`1.5px solid ${P.purple}`,borderRadius:14,padding:"12px 14px",marginBottom:14}}>
+            <p style={{margin:"0 0 4px",fontWeight:700,fontSize:13,color:P.purpleDark}}>📦 Local data found!</p>
+            <p style={{margin:"0 0 10px",fontSize:12,color:P.purple}}>{localData.profiles.length} child profile(s) on this device. Import to your account?</p>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={migrateLocalData} disabled={migrating} style={{flex:1,padding:"8px",borderRadius:10,background:P.purple,color:"white",fontWeight:700,fontSize:12}}>{migrating?"Importing...":"Yes, import ✨"}</button>
+              <button onClick={()=>{setLocalData(null);localStorage.removeItem(LOCAL_KEY);}} style={{padding:"8px 12px",borderRadius:10,background:"white",color:"#64748B",fontSize:12}}>Discard</button>
+            </div>
+          </div>
+        )}
+
+        {totalOverdue>0&&(
+          <div style={{background:P.redLight,border:`1.5px solid ${P.red}`,borderRadius:14,padding:"10px 14px",marginBottom:14,display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:22}}>🚨</span>
+            <div>
+              <p style={{margin:0,fontWeight:700,fontSize:13,color:P.redDark}}>{totalOverdue} vaccine{totalOverdue>1?"s":""} overdue!</p>
+              <p style={{margin:0,fontSize:12,color:P.red}}>Tap a child to view details</p>
+            </div>
+          </div>
+        )}
+
+        {profiles.map(p=>{
+          const total=p.vaccines.length,done=p.vaccines.filter(v=>v.done).length;
+          const overdue=p.vaccines.filter(v=>!v.done&&new Date(v.due_date)<new Date()).length;
+          const soon=p.vaccines.filter(v=>!v.done&&getStatus(v.due_date).diff>=0&&getStatus(v.due_date).diff<=7).length;
+          const pct=Math.round(done/total*100);
+          const ageMs=Date.now()-new Date(p.dob).getTime();
+          const ageYears=Math.floor(ageMs/1000/60/60/24/365.25);
+          const ageMos=Math.floor((ageMs/1000/60/60/24/365.25%1)*12);
+          const ageStr=ageYears>0?`${ageYears}y ${ageMos}m old`:`${Math.floor(ageMs/1000/60/60/24/30)}m old`;
+          return(
+            <div key={p.id} onClick={()=>{setSelId(p.id);setView("child");setTab("upcoming");setExpanded(null);}}
+              style={{background:"white",border:"1.5px solid #F1F5F9",borderRadius:18,padding:"14px 16px",marginBottom:10,cursor:"pointer",boxShadow:"0 2px 8px rgba(0,0,0,0.05)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <div style={{width:52,height:52,borderRadius:"50%",background:`linear-gradient(135deg,${P.pinkLight},${P.purpleLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,border:`2px solid ${P.pink}44`,flexShrink:0,overflow:"hidden"}}>
+                  {p.photo_url?<img src={p.photo_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:p.avatar}
+                </div>
+                <div style={{flex:1}}>
+                  <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1E293B"}}>{p.name}</p>
+                  <p style={{margin:"2px 0 6px",fontSize:12,color:"#94A3B8"}}>{ageStr}</p>
+                  <div style={{background:"#F1F5F9",borderRadius:20,height:6,overflow:"hidden"}}>
+                    <div style={{height:6,borderRadius:20,width:`${pct}%`,background:`linear-gradient(90deg,${P.pink},${P.purple})`}}/>
+                  </div>
+                  <p style={{margin:"4px 0 0",fontSize:11,color:"#94A3B8"}}>{done}/{total} completed ({pct}%)</p>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,marginTop:10,flexWrap:"wrap"}}>
+                {overdue>0&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600}}>🔴 {overdue} overdue</span>}
+                {soon>0&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.yellowLight,color:P.yellowDark,fontWeight:600}}>⏰ {soon} this week</span>}
+                <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,background:P.greenLight,color:P.greenDark,fontWeight:600}}>✅ {done} done</span>
+              </div>
+            </div>
+          );
+        })}
+
+        {profiles.length===0&&!showAdd&&(
+          <div style={{textAlign:"center",padding:"3rem 1rem"}}>
+            <p style={{fontSize:48,margin:0}}>👶</p>
+            <p style={{fontWeight:700,color:"#1E293B",margin:"10px 0 4px",fontSize:16}}>No children added yet</p>
+            <p style={{fontSize:13,color:"#94A3B8"}}>Add your first child to get started</p>
+          </div>
+        )}
+
+        {!showAdd&&<button onClick={()=>setShowAdd(true)} style={{width:"100%",padding:14,borderRadius:16,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontSize:15,fontWeight:700,marginTop:6,boxShadow:`0 4px 14px ${P.pink}55`}}>+ Add a child 🌟</button>}
+
+        {showAdd&&(
+          <div style={{background:"white",border:`2px dashed ${P.pink}`,borderRadius:18,padding:16,marginTop:10}}>
+            <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.pinkDark}}>New child profile 🎉</p>
+            <input placeholder="Child's name *" value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} style={{marginBottom:8}}/>
+            <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Date of birth *</label>
+            <input type="date" value={newP.dob} onChange={e=>setNewP({...newP,dob:e.target.value})} style={{marginBottom:12,WebkitAppearance:"none"}}/>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+              <div style={{width:56,height:56,borderRadius:"50%",border:`2px dashed ${P.pink}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,overflow:"hidden",flexShrink:0,background:P.pinkLight}}>
+                {newP.photo?<img src={newP.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:newP.avatar}
+              </div>
+              <div style={{flex:1}}>
+                <label style={{display:"block",padding:"8px 14px",borderRadius:12,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontWeight:600,fontSize:12,textAlign:"center",cursor:"pointer"}}>
+                  📷 Upload photo
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                    const f=e.target.files[0];if(!f)return;
+                    setNewP(prev=>({...prev,photoFile:f}));
+                    const r=new FileReader();r.onload=ev=>setNewP(prev=>({...prev,photo:ev.target.result}));r.readAsDataURL(f);
+                  }}/>
+                </label>
+                {newP.photo&&<button onClick={()=>setNewP({...newP,photo:null,photoFile:null,avatar:"🐶"})} style={{marginTop:6,width:"100%",padding:"6px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:12,fontWeight:600}}>Remove</button>}
+              </div>
+            </div>
+            <p style={{fontSize:11,color:"#94A3B8",margin:"0 0 6px"}}>Or pick an emoji</p>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}}>
+              {AVATARS.map(a=>(
+                <span key={a} onClick={()=>setNewP({...newP,avatar:a,photo:null,photoFile:null})} style={{fontSize:22,cursor:"pointer",width:38,height:38,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:10,border:`2px solid ${!newP.photo&&newP.avatar===a?P.pink:"transparent"}`,background:!newP.photo&&newP.avatar===a?P.pinkLight:"#F8FAFC"}}>{a}</span>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={addProfile} disabled={saving||!newP.name||!newP.dob}
+                style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontWeight:700,opacity:(saving||!newP.name||!newP.dob)?0.6:1}}>
+                {saving?"Saving...":"Create profile ✨"}
+              </button>
+              <button onClick={()=>{setShowAdd(false);setNewP({name:"",dob:"",avatar:"🐶",photo:null,photoFile:null});}} style={{padding:"10px 16px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── CHILD VIEW ──
+  if(view==="child"&&sel){
+    const allVax=sel.vaccines;
+    const overdue=allVax.filter(v=>!v.done&&new Date(v.due_date)<new Date());
+    const upcoming7=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>=0&&getStatus(v.due_date).diff<=7);
+    const upcoming30=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>7&&getStatus(v.due_date).diff<=30);
+    const future=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>30);
+    const done=allVax.filter(v=>v.done);
+    const groupedFuture={};
+    future.forEach(v=>{
+      if(v.age_months==null)return;
+      const y=Math.floor(v.age_months/12);
+      const k=`${y} years`;
+      if(!groupedFuture[k])groupedFuture[k]=[];
+      groupedFuture[k].push(v);
+    });
+    const customFuture=future.filter(v=>v.age_months==null);
+    const TABS=[
+      {key:"upcoming",label:"⏰ Due soon",count:overdue.length+upcoming7.length},
+      {key:"all",label:"📋 All",count:allVax.length},
+      {key:"done",label:"✅ Done",count:done.length},
+    ];
+    return(
+      <div style={{padding:"0.75rem 1rem 3rem",fontFamily:"system-ui,sans-serif"}}>
+        <Toast/>
+        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+          <button onClick={()=>{setView("home");setSelId(null);setEditProfile(null);}} style={{padding:"6px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600}}>← Back</button>
+          <div onClick={()=>setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null})}
+            style={{width:42,height:42,borderRadius:"50%",background:`linear-gradient(135deg,${P.pinkLight},${P.purpleLight})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,border:`2px solid ${P.pink}44`,overflow:"hidden",cursor:"pointer",flexShrink:0}}>
+            {sel.photo_url?<img src={sel.photo_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:sel.avatar}
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.name}</p>
+            <p style={{margin:0,fontSize:11,color:"#94A3B8"}}>Born {new Date(sel.dob).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
+          </div>
+          <button onClick={()=>setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null})} style={{padding:"6px 10px",borderRadius:10,background:P.purpleLight,color:P.purpleDark,fontSize:12,fontWeight:600,flexShrink:0}}>✏️</button>
+          <button onClick={()=>deleteProfile(sel.id)} style={{padding:"6px 10px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:16,flexShrink:0}}>🗑</button>
+        </div>
+
+        {editProfile&&(
+          <div style={{background:"white",border:`2px dashed ${P.purple}`,borderRadius:18,padding:16,marginBottom:16}}>
+            <p style={{margin:"0 0 12px",fontWeight:700,fontSize:15,color:P.purpleDark}}>Edit profile ✏️</p>
+            <input placeholder="Child's name *" value={editProfile.name} onChange={e=>setEditProfile({...editProfile,name:e.target.value})} style={{marginBottom:8}}/>
+            <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Date of birth *</label>
+            <input type="date" value={editProfile.dob} onChange={e=>setEditProfile({...editProfile,dob:e.target.value})} style={{marginBottom:12,WebkitAppearance:"none"}}/>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+              <div style={{width:52,height:52,borderRadius:"50%",border:`2px dashed ${P.purple}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,overflow:"hidden",flexShrink:0,background:P.purpleLight}}>
+                {editProfile.photo?<img src={editProfile.photo} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:editProfile.avatar}
+              </div>
+              <div style={{flex:1}}>
+                <label style={{display:"block",padding:"7px 14px",borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:600,fontSize:12,textAlign:"center",cursor:"pointer"}}>
+                  📷 Change photo
+                  <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                    const f=e.target.files[0];if(!f)return;
+                    setEditProfile(prev=>({...prev,photoFile:f}));
+                    const r=new FileReader();r.onload=ev=>setEditProfile(prev=>({...prev,photo:ev.target.result}));r.readAsDataURL(f);
+                  }}/>
+                </label>
+                {editProfile.photo&&<button onClick={()=>setEditProfile({...editProfile,photo:null,photoFile:null})} style={{marginTop:6,width:"100%",padding:"5px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:12,fontWeight:600}}>Remove</button>}
+              </div>
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:12}}>
+              {AVATARS.map(a=>(
+                <span key={a} onClick={()=>setEditProfile({...editProfile,avatar:a,photo:null,photoFile:null})} style={{fontSize:20,cursor:"pointer",width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:8,border:`2px solid ${!editProfile.photo&&editProfile.avatar===a?P.purple:"transparent"}`,background:!editProfile.photo&&editProfile.avatar===a?P.purpleLight:"#F8FAFC"}}>{a}</span>
+              ))}
+            </div>
+            {editProfile.dob!==sel.dob&&<div style={{background:P.yellowLight,borderRadius:10,padding:"8px 12px",marginBottom:12}}><p style={{margin:0,fontSize:12,color:P.yellowDark,fontWeight:600}}>⚠️ Changing DOB recalculates all IAP vaccine due dates. Custom vaccine dates are unchanged.</p></div>}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={saveEditProfile} disabled={saving||!editProfile.name||!editProfile.dob}
+                style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(saving||!editProfile.name||!editProfile.dob)?0.6:1}}>
+                {saving?"Saving...":"Save changes ✓"}
+              </button>
+              <button onClick={()=>setEditProfile(null)} style={{padding:"10px 16px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+          {[[overdue.length,"🔴","Overdue",P.redLight,P.redDark],[upcoming7.length,"⏰","This week",P.yellowLight,P.yellowDark],[done.length,"✅","Done",P.greenLight,P.greenDark]].map(([n,ic,lb,bg,tc])=>(
+            <div key={lb} style={{background:bg,borderRadius:14,padding:"10px 6px",textAlign:"center"}}>
+              <p style={{margin:0,fontSize:18}}>{ic}</p>
+              <p style={{margin:"2px 0",fontWeight:700,fontSize:20,color:tc}}>{n}</p>
+              <p style={{margin:0,fontSize:10,color:tc,fontWeight:500}}>{lb}</p>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+          {TABS.map(t=>(
+            <button key={t.key} onClick={()=>setTab(t.key)} style={{padding:"7px 14px",borderRadius:20,whiteSpace:"nowrap",background:tab===t.key?`linear-gradient(135deg,${P.pink},${P.purple})`:"#F1F5F9",color:tab===t.key?"white":"#64748B",fontWeight:600,fontSize:12,boxShadow:tab===t.key?`0 3px 10px ${P.pink}44`:"none"}}>
+              {t.label} ({t.count})
+            </button>
+          ))}
+          <button onClick={()=>setShowCustom(!showCustom)} style={{padding:"7px 14px",borderRadius:20,whiteSpace:"nowrap",background:P.purpleLight,color:P.purpleDark,fontWeight:600,fontSize:12,marginLeft:"auto"}}>+ Custom</button>
+        </div>
+
+        {showCustom&&(
+          <div style={{background:"white",border:`2px dashed ${P.purple}`,borderRadius:16,padding:14,marginBottom:14}}>
+            <p style={{margin:"0 0 10px",fontWeight:700,fontSize:14,color:P.purpleDark}}>Add custom vaccine 💜</p>
+            <input placeholder="Vaccine name *" value={newV.name} onChange={e=>setNewV({...newV,name:e.target.value})} style={{marginBottom:8}}/>
+            <label style={{fontSize:12,color:"#64748B",display:"block",marginBottom:4}}>Due date *</label>
+            <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} style={{marginBottom:8,WebkitAppearance:"none"}}/>
+            <input placeholder="Notes (optional)" value={newV.notes} onChange={e=>setNewV({...newV,notes:e.target.value})} style={{marginBottom:12}}/>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate} style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate)?0.6:1}}>Add ✨</button>
+              <button onClick={()=>{setShowCustom(false);setNewV({name:"",dueDate:"",notes:""});}} style={{padding:"9px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {tab==="upcoming"&&(
+          <>
+            {overdue.length>0&&<><p style={{margin:"0 0 8px",fontSize:12,fontWeight:700,color:P.redDark}}>🔴 OVERDUE</p>{overdue.map(v=><VaxCard key={v.id} v={v}/>)}</>}
+            {upcoming7.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.yellowDark}}>⏰ THIS WEEK</p>{upcoming7.map(v=><VaxCard key={v.id} v={v}/>)}</>}
+            {upcoming30.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.tealDark}}>📅 THIS MONTH</p>{upcoming30.map(v=><VaxCard key={v.id} v={v}/>)}</>}
+            {overdue.length===0&&upcoming7.length===0&&upcoming30.length===0&&(
+              <div style={{textAlign:"center",padding:"2rem 1rem"}}>
+                <p style={{fontSize:40}}>🎉</p>
+                <p style={{fontWeight:700,color:"#1E293B",margin:"8px 0 4px"}}>All clear!</p>
+                <p style={{fontSize:13,color:"#94A3B8"}}>No vaccines due soon</p>
+              </div>
+            )}
+            {(Object.keys(groupedFuture).length>0||customFuture.length>0)&&(
+              <div style={{marginTop:12}}>
+                <p style={{margin:"0 0 8px",fontSize:12,fontWeight:700,color:"#94A3B8"}}>🔮 COMING UP</p>
+                {Object.entries(groupedFuture).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([yr,vaxes])=>(
+                  <details key={yr} style={{marginBottom:6}}>
+                    <summary style={{fontSize:12,fontWeight:600,color:"#64748B",cursor:"pointer",padding:"8px 12px",background:"#F8FAFC",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
+                      <span>At {yr}</span><span style={{color:"#CBD5E1"}}>{vaxes.length} vaccines ▾</span>
+                    </summary>
+                    <div style={{paddingTop:6}}>{vaxes.map(v=><VaxCard key={v.id} v={v}/>)}</div>
+                  </details>
+                ))}
+                {customFuture.length>0&&(
+                  <details style={{marginBottom:6}}>
+                    <summary style={{fontSize:12,fontWeight:600,color:"#64748B",cursor:"pointer",padding:"8px 12px",background:"#F8FAFC",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
+                      <span>Custom vaccines</span><span style={{color:"#CBD5E1"}}>{customFuture.length} ▾</span>
+                    </summary>
+                    <div style={{paddingTop:6}}>{customFuture.map(v=><VaxCard key={v.id} v={v}/>)}</div>
+                  </details>
+                )}
+              </div>
+            )}
+          </>
+        )}
+        {tab==="all"&&allVax.map(v=><VaxCard key={v.id} v={v}/>)}
+        {tab==="done"&&(done.length===0
+          ?<div style={{textAlign:"center",padding:"2rem"}}><p style={{fontSize:36}}>💉</p><p style={{color:"#94A3B8",fontSize:13}}>No vaccines marked done yet</p></div>
+          :done.map(v=><VaxCard key={v.id} v={v}/>)
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
