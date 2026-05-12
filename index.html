@@ -8,12 +8,14 @@
 <meta name="apple-mobile-web-app-title" content="VaxBuddy"/>
 <link rel="apple-touch-icon" href="https://i.ibb.co/8LrwgPbc/BCF2-E111-3-A8-C-4-DDF-B48-A-587-EAF49-C166.png"/>
 <link rel="icon" type="image/png" href="https://i.ibb.co/8LrwgPbc/BCF2-E111-3-A8-C-4-DDF-B48-A-587-EAF49-C166.png"/>
+<link rel="manifest" href="manifest.json"/>
 <title>VaxBuddy</title>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;background:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
@@ -147,6 +149,93 @@ function scheduleReminders(vaccines,childName){
 
 const LOCAL_KEY="vaxbuddy_local_v1";
 function getLocal(){try{const r=localStorage.getItem(LOCAL_KEY);return r?JSON.parse(r):null;}catch{return null;}}
+
+// PDF Export Function
+function generateVaccinePDF(profile,vaccines){
+  if(typeof jspdf==="undefined"||!jspdf.jsPDF){
+    alert("PDF library failed to load. Please refresh and try again.");
+    return;
+  }
+  const{jsPDF}=jspdf;
+  const doc=new jsPDF("p","mm","a4");
+  const pageWidth=doc.internal.pageSize.getWidth();
+  const pageHeight=doc.internal.pageSize.getHeight();
+  let yPos=15;
+  const margin=12;
+  const contentWidth=pageWidth-(2*margin);
+
+  // Title
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(20);
+  doc.text("Vaccination Record",margin,yPos);
+  yPos+=12;
+
+  // Child Info
+  doc.setFontSize(11);
+  doc.setFont("helvetica","normal");
+  const dobDate=new Date(profile.dob);
+  const dobStr=dobDate.toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"});
+  doc.text(`Child: ${profile.name}`,margin,yPos);
+  yPos+=6;
+  doc.text(`Date of Birth: ${dobStr}`,margin,yPos);
+  yPos+=6;
+
+  const today=new Date().toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"});
+  doc.setFontSize(9);
+  doc.setFont("helvetica","italic");
+  doc.text(`Generated: ${today}`,margin,yPos);
+  yPos+=10;
+
+  // Section Header
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
+  doc.text("Administered Vaccines",margin,yPos);
+  yPos+=8;
+
+  // Table Headers
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10);
+  doc.setFillColor(165,85,247); // purple
+  doc.setTextColor(255,255,255);
+  doc.rect(margin,yPos-4,contentWidth,6,"F");
+  doc.text("Vaccine Name",margin+2,yPos);
+  doc.text("Date Administered",margin+100,yPos);
+  doc.text("Type",margin+170,yPos);
+  yPos+=8;
+
+  // Table Rows
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(9);
+  doc.setTextColor(0,0,0);
+
+  vaccines.forEach((v,idx)=>{
+    if(yPos>pageHeight-20){
+      doc.addPage();
+      yPos=15;
+    }
+    const doneDate=v.done_date?new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"}):"—";
+    const type=v.custom?"Custom":"IAP";
+    const bg=idx%2===0?"#F8FAFC":"white";
+    if(bg==="#F8FAFC"){
+      doc.setFillColor(248,250,252);
+      doc.rect(margin,yPos-3.5,contentWidth,6,"F");
+    }
+    doc.text(v.name,margin+2,yPos);
+    doc.text(doneDate,margin+100,yPos);
+    doc.text(type,margin+170,yPos);
+    yPos+=6;
+  });
+
+  // Footer
+  yPos=pageHeight-10;
+  doc.setFontSize(8);
+  doc.setFont("helvetica","italic");
+  doc.setTextColor(148,163,184);
+  doc.text("This record was generated from VaxBuddy vaccine tracking app.",margin,yPos);
+
+  // Save
+  doc.save(`${profile.name}_vaccination_record.pdf`);
+}
 
 // ── Supabase helpers with error handling ──
 async function dbRun(fn,onErr){
@@ -717,6 +806,7 @@ function App(){
             <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.name}</p>
             <p style={{margin:0,fontSize:11,color:"#94A3B8"}}>Born {new Date(sel.dob).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
           </div>
+          <button onClick={()=>{const completedVaxes=sel.vaccines.filter(v=>v.done).sort((a,b)=>new Date(b.done_date)-new Date(a.done_date));generateVaccinePDF(sel,completedVaxes);}} style={{padding:"6px 10px",borderRadius:10,background:"#FFF0E6",color:"#F97316",fontSize:12,fontWeight:600,flexShrink:0}}>📄</button>
           <button onClick={()=>setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null})} style={{padding:"6px 10px",borderRadius:10,background:P.purpleLight,color:P.purpleDark,fontSize:12,fontWeight:600,flexShrink:0}}>✏️</button>
           <button onClick={()=>deleteProfile(sel.id)} style={{padding:"6px 10px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:16,flexShrink:0}}>🗑</button>
         </div>
