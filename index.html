@@ -282,6 +282,9 @@ function App(){
   const[saving,setSaving]=React.useState(false);
   const[toast,setToast]=React.useState(null);
   const[migrating,setMigrating]=React.useState(false);
+  const[addingCustom,setAddingCustom]=React.useState(false);
+  const[markingDoneId,setMarkingDoneId]=React.useState(null);
+  const[deletingId,setDeletingId]=React.useState(null);
   const sel=profiles.find(p=>p.id===selId);
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
@@ -479,13 +482,14 @@ function App(){
 
   async function deleteProfile(id){
     if(!confirm("Delete this profile and all vaccine data? This cannot be undone."))return;
+    setDeletingId(id);
     try{
       const{error}=await sb.from("profiles").delete().eq("id",id);
       if(error)throw error;
       setSelId(null);setView("home");
       await loadProfiles(session.user.id);
       showToast("Profile deleted");
-    }catch(e){errToast(e.message||"Failed to delete profile");}
+    }catch(e){errToast(e.message||"Failed to delete profile");}finally{setDeletingId(null);}
   }
 
   // FIX #9: Confetti only after confirmed DB write
@@ -493,6 +497,7 @@ function App(){
     const vaccine = sel.vaccines.find(v=>v.id===vid);
     const today = new Date().toISOString().split("T")[0];
     const dateToSave = givenDate && givenDate.trim() ? givenDate : (vaccine?.due_date || today);
+    setMarkingDoneId(vid);
     try{
       const{error}=await sb.from("vaccines").update({done:true,done_date:dateToSave,reminder_set:false}).eq("id",vid);
       if(error)throw error;
@@ -503,7 +508,7 @@ function App(){
       setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,
         vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:true,done_date:dateToSave,reminder_set:false})
       }));
-    }catch(e){errToast(e.message||"Failed to update vaccine");}
+    }catch(e){errToast(e.message||"Failed to update vaccine");}finally{setMarkingDoneId(null);}
   }
 
   async function markUndone(vid){
@@ -519,6 +524,7 @@ function App(){
   // FIX #6: uuid for custom vaccine IDs
   async function addCustomVaccine(){
     if(!newV.name.trim()||!newV.dueDate){showToast("Name and due date required","error");return;}
+    setAddingCustom(true);
     try{
       const vid=uid();
       const{error}=await sb.from("vaccines").insert({
@@ -533,17 +539,18 @@ function App(){
       }));
       setNewV({name:"",dueDate:"",notes:""});setShowCustom(false);
       showToast("Custom vaccine added!");
-    }catch(e){errToast(e.message||"Failed to add vaccine");}
+    }catch(e){errToast(e.message||"Failed to add vaccine");}finally{setAddingCustom(false);}
   }
 
   async function deleteCustomVaccine(vid){
     if(!confirm("Delete this custom vaccine?"))return;
+    setDeletingId(vid);
     try{
       const{error}=await sb.from("vaccines").delete().eq("id",vid);
       if(error)throw error;
       setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,vaccines:p.vaccines.filter(v=>v.id!==vid)}));
       showToast("Vaccine deleted");
-    }catch(e){errToast(e.message||"Failed to delete vaccine");}
+    }catch(e){errToast(e.message||"Failed to delete vaccine");}finally{setDeletingId(null);}
   }
 
   // ── Toast ──
@@ -629,9 +636,11 @@ function App(){
             {!v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:"#64748B"}}>📅 Due: {new Date(v.due_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}</p>}
             {v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:P.green}}>✅ Given on {new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</p>}
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {!v.done&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12}}>Mark done ✓</button>}
+              {!v.done&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} disabled={markingDoneId===v.id} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done ✓</button>}
               {v.done&&<button onClick={()=>markUndone(v.id)} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
-              {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12}}>Delete</button>}
+              {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1}}>
+                {deletingId===v.id?"Deleting...":"Delete"}
+              </button>}
             </div>
             {markingDone===v.id&&(
               <div style={{marginTop:10,padding:12,background:"white",borderRadius:10,border:`1.5px solid ${P.greenLight}`}}>
@@ -639,8 +648,10 @@ function App(){
                 <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
                 <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} placeholder="Optional" style={{marginBottom:10,WebkitAppearance:"none"}}/>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>confirmMarkDone(v.id)} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13}}>Confirm ✓</button>
-                  <button onClick={()=>{setMarkingDone(null);setGivenDate("");}} style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13}}>Cancel</button>
+                  <button onClick={()=>confirmMarkDone(v.id)} disabled={markingDoneId===v.id} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
+                    {markingDoneId===v.id?"Confirming...":"Confirm ✓"}
+                  </button>
+                  <button onClick={()=>{setMarkingDone(null);setGivenDate("");}} disabled={markingDoneId===v.id} style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
                 </div>
               </div>
             )}
@@ -806,8 +817,8 @@ function App(){
             <p style={{margin:0,fontSize:11,color:"#94A3B8"}}>Born {new Date(sel.dob).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
           </div>
           <button onClick={()=>{const completedVaxes=sel.vaccines.filter(v=>v.done).sort((a,b)=>new Date(b.done_date)-new Date(a.done_date));generateVaccinePDF(sel,completedVaxes);}} style={{padding:"6px 10px",borderRadius:10,background:"#FFF0E6",color:"#F97316",fontSize:12,fontWeight:600,flexShrink:0}}>📄</button>
-          <button onClick={()=>setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null})} style={{padding:"6px 10px",borderRadius:10,background:P.purpleLight,color:P.purpleDark,fontSize:12,fontWeight:600,flexShrink:0}}>✏️</button>
-          <button onClick={()=>deleteProfile(sel.id)} style={{padding:"6px 10px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:16,flexShrink:0}}>🗑</button>
+          <button onClick={()=>setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null})} disabled={deletingId===sel.id} style={{padding:"6px 10px",borderRadius:10,background:P.purpleLight,color:P.purpleDark,fontSize:12,fontWeight:600,flexShrink:0,opacity:deletingId===sel.id?0.5:1}}>✏️</button>
+          <button onClick={()=>deleteProfile(sel.id)} disabled={deletingId===sel.id} style={{padding:"6px 10px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:16,flexShrink:0,opacity:deletingId===sel.id?0.5:1}}>{deletingId===sel.id?"⏳":"🗑"}</button>
         </div>
 
         {editProfile&&(
@@ -875,8 +886,10 @@ function App(){
             <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} style={{marginBottom:8,WebkitAppearance:"none"}}/>
             <input placeholder="Notes (optional)" value={newV.notes} onChange={e=>setNewV({...newV,notes:e.target.value})} style={{marginBottom:12}}/>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate} style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate)?0.6:1}}>Add ✨</button>
-              <button onClick={()=>{setShowCustom(false);setNewV({name:"",dueDate:"",notes:""});}} style={{padding:"9px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
+              <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate||addingCustom} style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate||addingCustom)?0.6:1}}>
+                {addingCustom?"Adding...":"Add ✨"}
+              </button>
+              <button onClick={()=>{setShowCustom(false);setNewV({name:"",dueDate:"",notes:""});}} disabled={addingCustom} style={{padding:"9px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",opacity:addingCustom?0.5:1}}>Cancel</button>
             </div>
           </div>
         )}
