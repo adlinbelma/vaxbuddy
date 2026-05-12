@@ -15,6 +15,7 @@
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;background:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
@@ -236,6 +237,115 @@ function generateVaccinePDF(profile,vaccines){
   doc.save(`${profile.name}_vaccination_record.pdf`);
 }
 
+// OCR Image Preprocessing Function
+function preprocessImageForOCR(imageDataUrl,callback){
+  const img=new Image();
+  img.onload=()=>{
+    const canvas=document.createElement("canvas");
+    const ctx=canvas.getContext("2d");
+
+    // Set canvas size - upscale if image is small
+    let width=img.width;
+    let height=img.height;
+    if(width<600){
+      const scale=600/width;
+      width=600;
+      height=Math.round(height*scale);
+    }
+
+    canvas.width=width;
+    canvas.height=height;
+
+    // Draw image
+    ctx.drawImage(img,0,0,width,height);
+
+    // Get image data
+    let imageData=ctx.getImageData(0,0,width,height);
+    const data=imageData.data;
+
+    // Convert to grayscale and increase contrast
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const gray=0.299*r+0.587*g+0.114*b;
+
+      // Increase contrast
+      const contrast=1.5;
+      const adjusted=Math.min(255,Math.max(0,(gray-128)*contrast+128));
+
+      data[i]=adjusted;
+      data[i+1]=adjusted;
+      data[i+2]=adjusted;
+    }
+
+    ctx.putImageData(imageData,0,0);
+    callback(canvas.toDataURL("image/jpeg",0.95));
+  };
+  img.src=imageDataUrl;
+}
+
+// OCR Extraction Function
+async function extractVaccineDataFromImage(imageDataUrl){
+  try{
+    if(typeof Tesseract==="undefined"){
+      return{error:"OCR library not loaded. Please refresh and try again."};
+    }
+
+    const{createWorker}=Tesseract;
+    const worker=await createWorker("eng");
+    const result=await worker.recognize(imageDataUrl);
+    await worker.terminate();
+
+    const text=result.data.text||"";
+
+    // Simple parsing for vaccine information
+    const extractedData={
+      vaccineName:"",
+      batchNumber:"",
+      expiryDate:"",
+      manufacturer:"",
+      dateManufactured:"",
+      lotNumber:"",
+      rawText:text
+    };
+
+    // Parse batch number (common patterns: LOT:, BATCH:, B:, Lot No:)
+    const batchMatch=text.match(/(?:LOT|BATCH|B\.?|Lot\s+No)[:\s]+([A-Z0-9\/\-]+)/i);
+    if(batchMatch)extractedData.batchNumber=batchMatch[1].trim();
+
+    // Parse expiry date (common formats: EXP, EXPIRY, Use By)
+    const expiryMatch=text.match(/(?:EXP|EXPIRY|Use\s+By|Exp\s+Date)[:\s]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+    if(expiryMatch)extractedData.expiryDate=expiryMatch[1].trim();
+
+    // Parse manufacturer
+    const mfrMatch=text.match(/(?:MFR|MANUFACTURER|Made\s+by)[:\s]+([^\n]+)/i);
+    if(mfrMatch)extractedData.manufacturer=mfrMatch[1].trim().substring(0,50);
+
+    // Parse date manufactured (less common, look for patterns)
+    const mfgMatch=text.match(/(?:MFD|MANUFACTURED|Date\s+Mfg)[:\s]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+    if(mfgMatch)extractedData.dateManufactured=mfgMatch[1].trim();
+
+    // Parse lot number (alternate to batch)
+    if(!extractedData.batchNumber){
+      const lotMatch=text.match(/(?:LOT\s+No)[:\s]+([A-Z0-9\/\-]+)/i);
+      if(lotMatch)extractedData.lotNumber=lotMatch[1].trim();
+    }
+
+    // Try to extract vaccine name (first few words that look like vaccine names)
+    const vaccinePatterns=["BCG","DTP","IPV","OPV","Hib","PCV","Rotavirus","MMR","Varicella","HPV","Hepatitis","Influenza","Typhoid","Tdap","Meningo"];
+    for(const pattern of vaccinePatterns){
+      if(text.includes(pattern)){
+        extractedData.vaccineName=pattern;
+        break;
+      }
+    }
+
+    return extractedData;
+  }catch(e){
+    console.error("OCR Error:",e);
+    return{error:e.message||"Failed to extract vaccine data from image"};
+  }
+}
+
 // ── Supabase helpers with error handling ──
 async function dbRun(fn,onErr){
   try{
@@ -286,6 +396,11 @@ function App(){
   const[markingDoneId,setMarkingDoneId]=React.useState(null);
   const[deletingId,setDeletingId]=React.useState(null);
   const[menuOpen,setMenuOpen]=React.useState(false);
+  const[ocrImage,setOcrImage]=React.useState(null);
+  const[ocrData,setOcrData]=React.useState(null);
+  const[ocrLoading,setOcrLoading]=React.useState(false);
+  const[ocrShowReview,setOcrShowReview]=React.useState(false);
+  const[ocrError,setOcrError]=React.useState("");
   const sel=profiles.find(p=>p.id===selId);
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
@@ -498,20 +613,28 @@ function App(){
   }
 
   // FIX #9: Confetti only after confirmed DB write
-  async function confirmMarkDone(vid){
+  async function confirmMarkDone(vid,ocrDataParam=null){
     const vaccine = sel.vaccines.find(v=>v.id===vid);
     const today = new Date().toISOString().split("T")[0];
     const dateToSave = givenDate && givenDate.trim() ? givenDate : (vaccine?.due_date || today);
+
+    // Build notes from OCR data if available
+    let notesToSave = vaccine?.notes || null;
+    if(ocrDataParam){
+      const ocrNotes = `Batch: ${ocrDataParam.batchNumber || "—"}, Exp: ${ocrDataParam.expiryDate || "—"}, Mfr: ${ocrDataParam.manufacturer || "—"}`;
+      notesToSave = ocrNotes;
+    }
+
     setMarkingDoneId(vid);
     try{
-      const{error}=await sb.from("vaccines").update({done:true,done_date:dateToSave,reminder_set:false}).eq("id",vid);
+      const{error}=await sb.from("vaccines").update({done:true,done_date:dateToSave,reminder_set:false,notes:notesToSave}).eq("id",vid);
       if(error)throw error;
       fireConfetti(); // only fires after success
       setMarkingDone(null);
       setGivenDate(""); // clear the date field
       // FIX #8: Optimistic local state update
       setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,
-        vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:true,done_date:dateToSave,reminder_set:false})
+        vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:true,done_date:dateToSave,reminder_set:false,notes:notesToSave})
       }));
     }catch(e){errToast(e.message||"Failed to update vaccine");}finally{setMarkingDoneId(null);}
   }
@@ -652,11 +775,40 @@ function App(){
                 <p style={{margin:"0 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>✅ When was it given?</p>
                 <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
                 <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} max={new Date().toISOString().split("T")[0]} placeholder="Optional" aria-label="Date vaccine was given" style={{marginBottom:10,WebkitAppearance:"none"}}/>
+                <div style={{display:"flex",gap:6,marginBottom:10}}>
+                  <input type="file" id={`ocr-input-${v.id}`} accept="image/*" onChange={async(e)=>{
+                    const file=e.target.files?.[0];
+                    if(!file)return;
+                    const reader=new FileReader();
+                    reader.onload=async(event)=>{
+                      const imageDataUrl=event.target?.result;
+                      setOcrImage(imageDataUrl);
+                      setOcrLoading(true);
+                      setOcrError("");
+
+                      // Preprocess image
+                      preprocessImageForOCR(imageDataUrl,async(preprocessedImage)=>{
+                        const result=await extractVaccineDataFromImage(preprocessedImage);
+                        setOcrLoading(false);
+
+                        if(result.error){
+                          setOcrError(result.error);
+                          setOcrData(null);
+                        }else{
+                          setOcrData(result);
+                          setOcrShowReview(true);
+                        }
+                      });
+                    };
+                    reader.readAsDataURL(file);
+                  }} style={{display:"none"}} aria-label="Upload vaccine photo for OCR extraction"/>
+                  <button onClick={()=>document.getElementById(`ocr-input-${v.id}`).click()} aria-label="📸 Add Photo - Upload vaccine image" style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Add Photo</button>
+                </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>confirmMarkDone(v.id)} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
                     {markingDoneId===v.id?"Confirming...":"Confirm ✓"}
                   </button>
-                  <button onClick={()=>{setMarkingDone(null);setGivenDate("");}} disabled={markingDoneId===v.id} aria-label="Cancel marking vaccine as done" style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
+                  <button onClick={()=>{setMarkingDone(null);setGivenDate("");setOcrImage(null);setOcrData(null);}} disabled={markingDoneId===v.id} aria-label="Cancel marking vaccine as done" style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
                 </div>
               </div>
             )}
@@ -958,6 +1110,95 @@ function App(){
       </div>
     );
   }
+
+  // ── OCR REVIEW MODAL ──
+  if(ocrShowReview&&ocrData){
+    return(
+      <div role="presentation" style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",zIndex:9999}} onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}}>
+        <div role="dialog" aria-modal="true" aria-labelledby="ocr-modal-title" onClick={e=>e.stopPropagation()} style={{width:"100%",maxHeight:"90vh",background:"white",borderRadius:"20px 20px 0 0",overflow:"auto",maxWidth:480}}>
+          <div style={{padding:"16px 16px 0",borderBottom:"1px solid #E2E8F0"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <h2 id="ocr-modal-title" style={{margin:0,fontSize:16,fontWeight:700,color:"#1E293B"}}>Review vaccine data</h2>
+              <button onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}} aria-label="Close review modal" style={{background:"none",padding:8,fontSize:18,cursor:"pointer",color:"#94A3B8"}}>✕</button>
+            </div>
+          </div>
+
+          <div style={{padding:"16px"}}>
+            {ocrImage&&(
+              <div style={{marginBottom:12,borderRadius:10,overflow:"hidden",border:"1.5px solid #E2E8F0"}}>
+                <img src={ocrImage} style={{width:"100%",maxHeight:300,objectFit:"cover"}} alt="Vaccine label"/>
+              </div>
+            )}
+
+            {ocrLoading&&(
+              <div style={{textAlign:"center",padding:"20px"}}>
+                <div className="spinner" style={{marginBottom:12}}/>
+                <p style={{fontSize:13,color:"#64748B",role:"status","aria-live":"polite"}}>Extracting vaccine information...</p>
+              </div>
+            )}
+
+            {ocrError&&(
+              <div style={{padding:12,background:P.redLight,borderRadius:10,marginBottom:12,role:"alert","aria-live":"assertive"}}>
+                <p style={{fontSize:12,color:P.redDark,margin:0}}>⚠️ {ocrError}</p>
+              </div>
+            )}
+
+            {!ocrLoading&&ocrData&&!ocrError&&(
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"#64748B",display:"block",marginBottom:4}}>Vaccine Name *</label>
+                  <input type="text" value={ocrData.vaccineName||""} onChange={e=>setOcrData({...ocrData,vaccineName:e.target.value})} placeholder="e.g., BCG, DTP" aria-label="Vaccine name" style={{marginBottom:0}}/>
+                </div>
+
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"#64748B",display:"block",marginBottom:4}}>Batch Number</label>
+                  <input type="text" value={ocrData.batchNumber||""} onChange={e=>setOcrData({...ocrData,batchNumber:e.target.value})} placeholder="e.g., ABC123" aria-label="Batch number"/>
+                </div>
+
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"#64748B",display:"block",marginBottom:4}}>Expiry Date</label>
+                  <input type="text" value={ocrData.expiryDate||""} onChange={e=>setOcrData({...ocrData,expiryDate:e.target.value})} placeholder="e.g., 12/2027" aria-label="Expiry date"/>
+                </div>
+
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"#64748B",display:"block",marginBottom:4}}>Manufacturer</label>
+                  <input type="text" value={ocrData.manufacturer||""} onChange={e=>setOcrData({...ocrData,manufacturer:e.target.value})} placeholder="e.g., Serum Institute" aria-label="Manufacturer"/>
+                </div>
+
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"#64748B",display:"block",marginBottom:4}}>Date Manufactured</label>
+                  <input type="text" value={ocrData.dateManufactured||""} onChange={e=>setOcrData({...ocrData,dateManufactured:e.target.value})} placeholder="e.g., 01/2025" aria-label="Date manufactured"/>
+                </div>
+
+                <div>
+                  <label style={{fontSize:12,fontWeight:600,color:"#64748B",display:"block",marginBottom:4}}>Lot Number</label>
+                  <input type="text" value={ocrData.lotNumber||""} onChange={e=>setOcrData({...ocrData,lotNumber:e.target.value})} placeholder="e.g., LOT123" aria-label="Lot number"/>
+                </div>
+
+                <p style={{fontSize:11,color:"#94A3B8",margin:"8px 0 0"}}>✏️ You can edit any field before confirming</p>
+
+                <div style={{display:"flex",gap:8,marginTop:12}}>
+                  <button onClick={()=>{
+                    if(ocrData.vaccineName){
+                      confirmMarkDone(markingDone,ocrData);
+                      setOcrShowReview(false);
+                      setOcrImage(null);
+                      setOcrData(null);
+                      setOcrError("");
+                    }
+                  }} disabled={!ocrData.vaccineName} aria-label="Confirm vaccine data and mark as done" style={{flex:1,padding:"10px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:!ocrData.vaccineName?0.6:1}}>
+                    Confirm ✓
+                  </button>
+                  <button onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}} aria-label="Cancel without saving extracted data" style={{padding:"10px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:13}}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return null;
 }
 
