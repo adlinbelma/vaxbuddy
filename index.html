@@ -15,7 +15,7 @@
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+<script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;background:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
@@ -283,19 +283,25 @@ function preprocessImageForOCR(imageDataUrl,callback){
   img.src=imageDataUrl;
 }
 
-// OCR Extraction Function
+// OCR Extraction Function using Tesseract.js
 async function extractVaccineDataFromImage(imageDataUrl){
   try{
     if(typeof Tesseract==="undefined"){
       return{error:"OCR library not loaded. Please refresh and try again."};
     }
 
+    console.log("Starting Tesseract.js OCR...");
     const{createWorker}=Tesseract;
+    console.log("Creating worker...");
     const worker=await createWorker("eng");
-    const result=await worker.recognize(imageDataUrl);
-    await worker.terminate();
 
+    console.log("Worker created, recognizing image...");
+    const result=await worker.recognize(imageDataUrl);
     const text=result.data.text||"";
+    console.log("Recognition complete, text length:",text.length);
+    console.log("Extracted text preview:",text.substring(0,200));
+    await worker.terminate();
+    console.log("Worker terminated");
 
     // Simple parsing for vaccine information
     const extractedData={
@@ -308,34 +314,77 @@ async function extractVaccineDataFromImage(imageDataUrl){
       rawText:text
     };
 
-    // Parse batch number (common patterns: LOT:, BATCH:, B:, Lot No:)
-    const batchMatch=text.match(/(?:LOT|BATCH|B\.?|Lot\s+No)[:\s]+([A-Z0-9\/\-]+)/i);
-    if(batchMatch)extractedData.batchNumber=batchMatch[1].trim();
-
-    // Parse expiry date (common formats: EXP, EXPIRY, Use By)
-    const expiryMatch=text.match(/(?:EXP|EXPIRY|Use\s+By|Exp\s+Date)[:\s]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
-    if(expiryMatch)extractedData.expiryDate=expiryMatch[1].trim();
-
-    // Parse manufacturer
-    const mfrMatch=text.match(/(?:MFR|MANUFACTURER|Made\s+by)[:\s]+([^\n]+)/i);
-    if(mfrMatch)extractedData.manufacturer=mfrMatch[1].trim().substring(0,50);
-
-    // Parse date manufactured (less common, look for patterns)
-    const mfgMatch=text.match(/(?:MFD|MANUFACTURED|Date\s+Mfg)[:\s]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
-    if(mfgMatch)extractedData.dateManufactured=mfgMatch[1].trim();
-
-    // Parse lot number (alternate to batch)
+    // Parse batch/lot number (multiple patterns)
+    let batchMatch=text.match(/(?:LOT|BATCH|B\.?|Lot\s+No)[:\s]+([A-Z0-9\/\-]+)/i);
+    if(batchMatch){
+      extractedData.batchNumber=batchMatch[1].trim();
+    }else{
+      // Try alternative patterns: numbers after Mfg Lic No or similar
+      batchMatch=text.match(/(?:Mfg\s+Lic\s+No|License)[:\s\.]+([0-9A-Z\/]+)/i);
+      if(batchMatch)extractedData.batchNumber=batchMatch[1].trim().substring(0,30);
+    }
     if(!extractedData.batchNumber){
-      const lotMatch=text.match(/(?:LOT\s+No)[:\s]+([A-Z0-9\/\-]+)/i);
+      // Look for any standalone alphanumeric code (common batch number format)
+      const codeMatch=text.match(/([0-9]{4,}[\-A-Z0-9]{0,10})/);
+      if(codeMatch)extractedData.batchNumber=codeMatch[1].trim();
+    }
+
+    // Parse expiry date (multiple formats: EXP, EXPIRY, Use By, Valid Till)
+    let expiryMatch=text.match(/(?:EXP|EXPIRY|Use\s+By|Valid\s+Till|Exp\s+Date)[:\s\.]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+    if(expiryMatch){
+      extractedData.expiryDate=expiryMatch[1].trim();
+    }else{
+      // Try month/year format (MM/YYYY or MM-YYYY)
+      expiryMatch=text.match(/(?:EXP|EXPIRY)[:\s\.]+(\d{1,2}[\/\-]\d{4})/i);
+      if(expiryMatch)extractedData.expiryDate=expiryMatch[1].trim();
+    }
+
+    // Parse manufacturer (multiple patterns)
+    let mfrMatch=text.match(/(?:MFR|MANUFACTURER|Made\s+by|Mfg\s+by)[:\s\.]+([^\n]+)/i);
+    if(mfrMatch){
+      extractedData.manufacturer=mfrMatch[1].trim().substring(0,50);
+    }else{
+      // Look for company names after "by" or at start of lines with capitals
+      mfrMatch=text.match(/(?:by\s+|Produced\s+by\s+)([A-Z][A-Za-z\s]+)/);
+      if(mfrMatch)extractedData.manufacturer=mfrMatch[1].trim().substring(0,50);
+    }
+
+    // Parse date manufactured (MFD, MANUFACTURED, Date Mfg)
+    let mfgMatch=text.match(/(?:MFD|MANUFACTURED|Date\s+Mfg|Mfg\s+Date)[:\s\.]+(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
+    if(mfgMatch){
+      extractedData.dateManufactured=mfgMatch[1].trim();
+    }else{
+      // Try month/year format
+      mfgMatch=text.match(/(?:MFD|MANUFACTURED)[:\s\.]+(\d{1,2}[\/\-]\d{4})/i);
+      if(mfgMatch)extractedData.dateManufactured=mfgMatch[1].trim();
+    }
+
+    // Parse lot number (if not already found as batch)
+    if(!extractedData.batchNumber){
+      const lotMatch=text.match(/(?:LOT\s+No|Lot)[:\s\.]+([A-Z0-9\/\-]+)/i);
       if(lotMatch)extractedData.lotNumber=lotMatch[1].trim();
     }
 
-    // Try to extract vaccine name (first few words that look like vaccine names)
-    const vaccinePatterns=["BCG","DTP","IPV","OPV","Hib","PCV","Rotavirus","MMR","Varicella","HPV","Hepatitis","Influenza","Typhoid","Tdap","Meningo"];
+    // Try to extract vaccine name (comprehensive list of Indian vaccine names)
+    const vaccinePatterns=[
+      "Hepatitis A","Hepatitis B","Hepatitis","BCG","DTP","IPV","OPV","Hib","PCV","Rotavirus","MMR","Varicella",
+      "HPV","Influenza","Typhoid","Tdap","Meningococcal","Meningo","JE","Japanese Encephalitis",
+      "Polio","Pneumococcal","Measles","Rubella","Mumps","Varicella","Diphtheria","Pertussis","Tetanus",
+      "HAPTREV","VAXIGRIP","PENTAXIM","HEXAXIM","ROTAVIRUS","PNEUMO","ROTAVAC"
+    ];
     for(const pattern of vaccinePatterns){
-      if(text.includes(pattern)){
+      if(text.toUpperCase().includes(pattern.toUpperCase())){
         extractedData.vaccineName=pattern;
+        console.log("Found vaccine name:",pattern);
         break;
+      }
+    }
+
+    // If no vaccine name found, try to extract from first meaningful line
+    if(!extractedData.vaccineName){
+      const lines=text.split('\n').filter(l=>l.trim().length>5);
+      if(lines.length>0){
+        extractedData.vaccineName=lines[0].trim().substring(0,50);
       }
     }
 
@@ -764,7 +813,7 @@ function App(){
             {!v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:"#64748B"}}>📅 Due: {new Date(v.due_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}</p>}
             {v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:P.green}}>✅ Given on {new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</p>}
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {!v.done&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done ✓</button>}
+              {!v.done&&markingDone!==v.id&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done ✓</button>}
               {v.done&&<button onClick={()=>markUndone(v.id)} aria-label={`Undo marking ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
               {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} aria-label={`Delete custom vaccine ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1}}>
                 {deletingId===v.id?"Deleting...":"Delete"}
@@ -776,33 +825,55 @@ function App(){
                 <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
                 <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} max={new Date().toISOString().split("T")[0]} placeholder="Optional" aria-label="Date vaccine was given" style={{marginBottom:10,WebkitAppearance:"none"}}/>
                 <div style={{display:"flex",gap:6,marginBottom:10}}>
-                  <input type="file" id={`ocr-input-${v.id}`} accept="image/*" onChange={async(e)=>{
-                    const file=e.target.files?.[0];
-                    if(!file)return;
+                  <input type="file" accept="image/*" onChange={(e)=>{
+                    const file=e.target?.files?.[0];
+                    if(!file){console.log("No file selected");return;}
+                    console.log("File selected:",file.name);
                     const reader=new FileReader();
-                    reader.onload=async(event)=>{
+                    reader.onload=(event)=>{
                       const imageDataUrl=event.target?.result;
+                      if(!imageDataUrl)return;
+                      console.log("Image loaded, starting OCR...");
                       setOcrImage(imageDataUrl);
                       setOcrLoading(true);
                       setOcrError("");
 
                       // Preprocess image
-                      preprocessImageForOCR(imageDataUrl,async(preprocessedImage)=>{
-                        const result=await extractVaccineDataFromImage(preprocessedImage);
-                        setOcrLoading(false);
+                      preprocessImageForOCR(imageDataUrl,(preprocessedImage)=>{
+                        console.log("Image preprocessed, extracting data...");
+                        extractVaccineDataFromImage(preprocessedImage).then(result=>{
+                          console.log("OCR result:",result);
+                          console.log("Has error?",result.error);
+                          setOcrLoading(false);
 
-                        if(result.error){
-                          setOcrError(result.error);
-                          setOcrData(null);
-                        }else{
-                          setOcrData(result);
-                          setOcrShowReview(true);
-                        }
+                          if(result.error){
+                            console.log("Setting error state");
+                            setOcrError(result.error);
+                            setOcrData(null);
+                          }else{
+                            console.log("Setting OCR data and showing review modal");
+                            setOcrData(result);
+                            setOcrShowReview(true);
+                            console.log("Modal state set to true");
+                          }
+                        }).catch(err=>{
+                          console.error("OCR error:",err);
+                          setOcrLoading(false);
+                          setOcrError("Failed to extract vaccine data");
+                        });
                       });
+                    };
+                    reader.onerror=()=>{
+                      console.error("FileReader error");
+                      setOcrError("Failed to read image file");
                     };
                     reader.readAsDataURL(file);
                   }} style={{display:"none"}} aria-label="Upload vaccine photo for OCR extraction"/>
-                  <button onClick={()=>document.getElementById(`ocr-input-${v.id}`).click()} aria-label="📸 Add Photo - Upload vaccine image" style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Add Photo</button>
+                  <button onClick={(e)=>{
+                    e.preventDefault();
+                    const input=e.currentTarget.parentElement?.querySelector('input[type="file"]');
+                    if(input)input.click();
+                  }} aria-label="📸 Add Photo - Upload vaccine image" style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Add Photo</button>
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <button onClick={()=>confirmMarkDone(v.id)} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
@@ -826,7 +897,7 @@ function App(){
         <Toast/>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
-            <h1 style={{fontSize:24,fontWeight:800,background:`linear-gradient(135deg,${P.pink},${P.purple})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",margin:0}}>VaxBuddy 💉 Vaccine Tracker</h1>
+            <h1 style={{fontSize:24,fontWeight:800,background:`linear-gradient(135deg,${P.pink},${P.purple})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",margin:0}}>VaxBuddy 💉</h1>
             <p style={{fontSize:12,color:"#94A3B8",margin:"2px 0 0"}}>{session.user.email}</p>
           </div>
           <button onClick={signOut} aria-label="Log out" style={{padding:"6px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Log out</button>
@@ -1107,15 +1178,9 @@ function App(){
           ?<div style={{textAlign:"center",padding:"2rem"}}><p style={{fontSize:36}}>💉</p><p style={{color:"#94A3B8",fontSize:13}}>No vaccines marked done yet</p></div>
           :done.map(v=><VaxCard key={v.id} v={v}/>)
         )}
-      </div>
-    );
-  }
-
-  // ── OCR REVIEW MODAL ──
-  if(ocrShowReview&&ocrData){
-    return(
-      <div role="presentation" style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",zIndex:9999}} onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}}>
-        <div role="dialog" aria-modal="true" aria-labelledby="ocr-modal-title" onClick={e=>e.stopPropagation()} style={{width:"100%",maxHeight:"90vh",background:"white",borderRadius:"20px 20px 0 0",overflow:"auto",maxWidth:480}}>
+        {ocrShowReview&&ocrData&&(
+          <div role="presentation" style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",zIndex:9999}} onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}}>
+            <div role="dialog" aria-modal="true" aria-labelledby="ocr-modal-title" onClick={e=>e.stopPropagation()} style={{width:"100%",maxHeight:"90vh",background:"white",borderRadius:"20px 20px 0 0",overflow:"auto",maxWidth:480}}>
           <div style={{padding:"16px 16px 0",borderBottom:"1px solid #E2E8F0"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <h2 id="ocr-modal-title" style={{margin:0,fontSize:16,fontWeight:700,color:"#1E293B"}}>Review vaccine data</h2>
@@ -1133,7 +1198,7 @@ function App(){
             {ocrLoading&&(
               <div style={{textAlign:"center",padding:"20px"}}>
                 <div className="spinner" style={{marginBottom:12}}/>
-                <p style={{fontSize:13,color:"#64748B",role:"status","aria-live":"polite"}}>Extracting vaccine information...</p>
+                <p style={{fontSize:13,color:"#64748B",role:"status","aria-live":"polite"}}>Reading vaccine label...</p>
               </div>
             )}
 
@@ -1194,7 +1259,9 @@ function App(){
               </div>
             )}
           </div>
-        </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
