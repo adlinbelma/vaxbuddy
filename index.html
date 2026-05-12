@@ -299,13 +299,17 @@ function App(){
       else setLoading(false);
     });
     const{data:{subscription}}=sb.auth.onAuthStateChange((event,session)=>{
-      if(event==="SIGNED_OUT"||event==="TOKEN_REFRESHED"&&!session){
-        setSession(null);setProfiles([]);setLoading(false);setView("home");
-        showToast("Session expired. Please log in again.","error");
-      }else{
+      if(event==="INITIAL_SESSION"||event==="SIGNED_IN"){
         setSession(session);
         if(session)loadProfiles(session.user.id);
         else setLoading(false);
+      }else if(event==="TOKEN_REFRESHED"){
+        // Token refreshed silently - only update if session exists
+        if(session)setSession(session);
+      }else if(event==="SIGNED_OUT"){
+        // User explicitly signed out or session actually expired
+        setSession(null);setProfiles([]);setLoading(false);setView("home");
+        showToast("You've been signed out. Please log in again.","error");
       }
     });
     return()=>subscription.unsubscribe();
