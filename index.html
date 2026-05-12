@@ -285,6 +285,7 @@ function App(){
   const[addingCustom,setAddingCustom]=React.useState(false);
   const[markingDoneId,setMarkingDoneId]=React.useState(null);
   const[deletingId,setDeletingId]=React.useState(null);
+  const[menuOpen,setMenuOpen]=React.useState(false);
   const sel=profiles.find(p=>p.id===selId);
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
@@ -813,12 +814,28 @@ function App(){
             {sel.photo_url?<img src={sel.photo_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:sel.avatar}
           </div>
           <div style={{flex:1,minWidth:0}}>
-            <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1E293B",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sel.name}</p>
+            <p style={{margin:0,fontWeight:700,fontSize:16,color:"#1E293B"}}>{sel.name}</p>
             <p style={{margin:0,fontSize:11,color:"#94A3B8"}}>Born {new Date(sel.dob).toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}</p>
           </div>
-          <button onClick={()=>{const completedVaxes=sel.vaccines.filter(v=>v.done).sort((a,b)=>new Date(b.done_date)-new Date(a.done_date));generateVaccinePDF(sel,completedVaxes);}} style={{padding:"6px 10px",borderRadius:10,background:"#FFF0E6",color:"#F97316",fontSize:12,fontWeight:600,flexShrink:0}}>📄</button>
-          <button onClick={()=>setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null})} disabled={deletingId===sel.id} style={{padding:"6px 10px",borderRadius:10,background:P.purpleLight,color:P.purpleDark,fontSize:12,fontWeight:600,flexShrink:0,opacity:deletingId===sel.id?0.5:1}}>✏️</button>
-          <button onClick={()=>deleteProfile(sel.id)} disabled={deletingId===sel.id} style={{padding:"6px 10px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:16,flexShrink:0,opacity:deletingId===sel.id?0.5:1}}>{deletingId===sel.id?"⏳":"🗑"}</button>
+          <div style={{position:"relative"}}>
+            <button onClick={()=>setMenuOpen(!menuOpen)} style={{padding:"6px 10px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:16}}>⋮</button>
+            {menuOpen&&(
+              <div style={{position:"absolute",top:"100%",right:0,marginTop:6,background:"white",border:`1.5px solid ${P.purpleLight}`,borderRadius:12,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",zIndex:1000,minWidth:160}}>
+                <button onClick={()=>{const completedVaxes=sel.vaccines.filter(v=>v.done).sort((a,b)=>new Date(b.done_date)-new Date(a.done_date));generateVaccinePDF(sel,completedVaxes);setMenuOpen(false);}} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#1E293B",fontWeight:500,borderBottom:`1px solid ${P.purpleLight}`}}>
+                  <span>📄</span>
+                  <span>Export PDF</span>
+                </button>
+                <button onClick={()=>{setEditProfile({name:sel.name,dob:sel.dob,avatar:sel.avatar,photo:sel.photo_url,photoFile:null});setMenuOpen(false);}} disabled={deletingId===sel.id} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:"#1E293B",fontWeight:500,borderBottom:`1px solid ${P.purpleLight}`,opacity:deletingId===sel.id?0.5:1}}>
+                  <span>✏️</span>
+                  <span>Edit Profile</span>
+                </button>
+                <button onClick={()=>{deleteProfile(sel.id);setMenuOpen(false);}} disabled={deletingId===sel.id} style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:P.redDark,fontWeight:500,opacity:deletingId===sel.id?0.5:1}}>
+                  <span>{deletingId===sel.id?"⏳":"🗑"}</span>
+                  <span>Delete Profile</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {editProfile&&(
