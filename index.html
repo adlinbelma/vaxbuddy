@@ -97,6 +97,10 @@ const P={
   orange:"#F97316",orangeLight:"#FFF0E6",
 };
 
+// Constants
+const MAX_PHOTO_SIZE=5*1024*1024; // 5MB
+const SIGNED_URL_EXPIRY=3600; // 1 hour in seconds
+
 // ── Helpers ──
 function uid(){return crypto.randomUUID();}
 function calcDue(dob,am){
@@ -132,6 +136,45 @@ function fireConfetti(){
 const NOTIFICATION_KEY="vaxbuddy_notifications_v1";
 function getNotifiedToday(){try{const r=localStorage.getItem(NOTIFICATION_KEY);if(!r)return new Set();const parsed=JSON.parse(r);const today=new Date().toDateString();if(parsed.date!==today)return new Set();return new Set(parsed.vaccines);}catch{return new Set();}}
 function setNotifiedToday(vaccines){try{localStorage.setItem(NOTIFICATION_KEY,JSON.stringify({date:new Date().toDateString(),vaccines:Array.from(vaccines)}));}catch{}}
+
+// Parse vaccine details from notes field (handles both JSON and legacy formats)
+function parseVaccineDetails(notesString){
+  if(!notesString)return{details:[]};
+  try{
+    if(notesString.trim().startsWith("{")){
+      const parsed=JSON.parse(notesString);
+      return{details:parsed.details||[]};
+    }
+  }catch(e){}
+  // Legacy format: "Batch: X, Exp: Y, Mfr: Z"
+  // Try to extract details from pipe-separated format
+  const parts=notesString.split("|");
+  const detailsPart=parts[0].trim();
+  const batchMatch=detailsPart.match(/Batch:\s*([^,]*)/);
+  const expMatch=detailsPart.match(/Exp:\s*([^,]*)/);
+  const mfrMatch=detailsPart.match(/Mfr:\s*([^,]*)/);
+  const mfgMatch=detailsPart.match(/Mfg:\s*([^,]*)/);
+  if(batchMatch||expMatch||mfrMatch||mfgMatch){
+    return{details:[{
+      id:uid(),
+      batch:batchMatch?batchMatch[1].trim():"",
+      expiry:expMatch?expMatch[1].trim():"",
+      manufacturer:mfrMatch?mfrMatch[1].trim():"",
+      dateManufactured:mfgMatch?mfgMatch[1].trim():"",
+      photos:[]
+    }]};
+  }
+  return{details:[]};
+}
+
+// Serialize vaccine details array to JSON string for storage
+function serializeVaccineDetails(detailsArray){
+  if(!detailsArray||detailsArray.length===0)return null;
+  // Filter out entries with no fields filled
+  const filtered=detailsArray.filter(d=>d.name||d.batch||d.expiry||d.manufacturer||d.dateManufactured||d.photos?.length);
+  if(filtered.length===0)return null;
+  return JSON.stringify({details:filtered});
+}
 
 function scheduleReminders(vaccines,childName){
   if(!("Notification"in window)||Notification.permission!=="granted")return;
@@ -235,31 +278,53 @@ function generateVaccinePDF(profile,vaccines){
       doc.setFontSize(8);
       doc.setTextColor(75,85,99); // darker gray
 
-      // Parse notes to extract vaccine details
-      const details=v.notes.split(",").map(d=>d.trim());
-      const detailsToShow=[];
-
-      details.forEach(detail=>{
-        if(detail.startsWith("Batch:")){
-          detailsToShow.push(detail);
-        }else if(detail.startsWith("Exp:")){
-          detailsToShow.push(detail);
-        }else if(detail.startsWith("Mfr:")){
-          detailsToShow.push(detail);
-        }else if(detail.startsWith("Mfg:")){
-          detailsToShow.push(detail);
-        }
-      });
-
-      // Display vaccine details in a nice format
-      if(detailsToShow.length>0){
-        detailsToShow.forEach(detail=>{
+      // Parse notes to extract vaccine details (handles both JSON and legacy formats)
+      const parsed=parseVaccineDetails(v.notes);
+      if(parsed.details&&parsed.details.length>0){
+        parsed.details.forEach((detail,detailIdx)=>{
           if(yPos>pageHeight-20){
             doc.addPage();
             yPos=15;
           }
-          doc.text(`  ${detail}`,margin+2,yPos);
-          yPos+=4;
+          // Injection header if multiple details
+          if(parsed.details.length>1){
+            doc.setFont("helvetica","bold");
+            doc.setFontSize(8);
+            doc.text(`Injection ${detailIdx+1}:`,margin+2,yPos);
+            yPos+=3;
+          }
+          doc.setFont("helvetica","normal");
+          doc.setFontSize(8);
+          // Display all detail fields
+          if(detail.name){
+            doc.text(`  Name: ${detail.name}`,margin+2,yPos);
+            yPos+=3;
+          }
+          if(detail.batch){
+            doc.text(`  Batch: ${detail.batch}`,margin+2,yPos);
+            yPos+=3;
+          }
+          if(detail.expiry){
+            doc.text(`  Expiry: ${detail.expiry}`,margin+2,yPos);
+            yPos+=3;
+          }
+          if(detail.manufacturer){
+            doc.text(`  Manufacturer: ${detail.manufacturer}`,margin+2,yPos);
+            yPos+=3;
+          }
+          if(detail.dateManufactured){
+            doc.text(`  Date Mfg: ${detail.dateManufactured}`,margin+2,yPos);
+            yPos+=3;
+          }
+          // Note: Photos not included in PDF (storage limitation)
+          if(detail.photos&&detail.photos.length>0){
+            doc.setFontSize(7);
+            doc.setTextColor(148,163,184);
+            doc.text(`  (${detail.photos.length} photo${detail.photos.length>1?"s":""}attached)`,margin+2,yPos);
+            yPos+=2;
+            doc.setTextColor(75,85,99);
+          }
+          yPos+=2; // spacing between details
         });
       }
     }
@@ -508,7 +573,7 @@ async function getSignedUrl(path){
 }
 
 // VaxCard must be defined outside App to prevent recreation on parent re-render
-function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,setGivenDate,vaccineDetails,setVaccineDetails,vaccinePhotos,setVaccinePhotos,viewingPhotoIdx,setViewingPhotoIdx,markingDoneId,deletingId,confirmMarkDone,markUndone,deleteCustomVaccine,uploadPhoto,getSignedUrl,getStatus,getAgeLabel,P,ocrImage,setOcrImage,ocrData,setOcrData}){
+function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,setGivenDate,vaccinePhotos,setVaccinePhotos,viewingPhotoIdx,setViewingPhotoIdx,markingDoneId,deletingId,confirmMarkDone,markUndone,deleteCustomVaccine,uploadPhoto,getSignedUrl,getStatus,getAgeLabel,P,ocrImage,setOcrImage,ocrData,setOcrData,vaccineDetailsArray,setVaccineDetailsArray,editingVaccineId,setEditingVaccineId,editVaccineDone}){
   const st=getStatus(v.due_date,v.done);
   const isExp=expanded===v.id;
   return(
@@ -526,11 +591,27 @@ function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,se
       </div>
       {isExp&&(
         <div style={{borderTop:"1px solid #F1F5F9",padding:"10px 14px",background:"#FAFBFC"}}>
-          {v.notes&&<p style={{margin:"0 0 6px",fontSize:12,color:"#64748B"}}>{v.notes}</p>}
+          {v.done&&(() => {
+            const parsed = parseVaccineDetails(v.notes);
+            return parsed.details.length > 0 ? (
+              <div style={{ marginBottom: 8, fontSize: 12, color: '#64748B' }}>
+                <p style={{ fontWeight: 600, margin: '0 0 6px' }}>Vaccine Details:</p>
+                {parsed.details.map((detail, idx) => (
+                  <div key={detail.id || idx} style={{ margin: '0 0 8px', paddingLeft: 8 }}>
+                    {detail.name && <span>Injection: {detail.name}</span>}
+                    {detail.batch && <span>{detail.name ? ' | ' : ''}Batch: {detail.batch}</span>}
+                    {detail.expiry && <span> | Exp: {detail.expiry}</span>}
+                    {detail.manufacturer && <span> | Mfr: {detail.manufacturer}</span>}
+                  </div>
+                ))}
+              </div>
+            ) : null;
+          })()}
           {!v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:"#64748B"}}>Due: {new Date(v.due_date).toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"long",year:"numeric"})}</p>}
           {v.done&&<p style={{margin:"0 0 10px",fontSize:12,color:P.green}}>Given on {new Date(v.done_date).toLocaleDateString("en-IN",{day:"numeric",month:"long",year:"numeric"})}</p>}
           <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {!v.done&&markingDone!==v.id&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");const existing=v.photos?JSON.parse(v.photos):[];setVaccinePhotos(existing);}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done</button>}
+            {!v.done&&markingDone!==v.id&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");setVaccineDetailsArray([]);const existing=v.photos?JSON.parse(v.photos):[];setVaccinePhotos(existing);}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done</button>}
+            {v.done&&<button onClick={()=>{setEditingVaccineId(v.id);const parsed=parseVaccineDetails(v.notes);setVaccineDetailsArray(parsed.details);setGivenDate(v.done_date);const existing=v.photos?JSON.parse(v.photos):[];setVaccinePhotos(existing);setMarkingDone(v.id);}} disabled={markingDoneId===v.id||editingVaccineId===v.id} aria-label={`Edit ${v.name} vaccination details`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id||editingVaccineId===v.id?0.6:1}}>Edit</button>}
             {v.done&&<button onClick={()=>markUndone(v.id)} aria-label={`Undo marking ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
             {v.done&&v.photos&&<button onClick={async()=>{const photos=JSON.parse(v.photos);const withUrls=await Promise.all(photos.map(async p=>{if(p.preview)return p;const url=await getSignedUrl(p.path);return {...p,preview:url||p.dataUrl};}));setVaccinePhotos(withUrls);setViewingPhotoIdx(0);}} aria-label={`View attached photos for ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Photos</button>}
             {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} aria-label={`Delete custom vaccine ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1}}>
@@ -542,56 +623,49 @@ function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,se
               <p style={{margin:"0 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>When was it given?</p>
               <p style={{margin:"0 0 8px",fontSize:11,color:"#94A3B8"}}>Leave blank to use the scheduled due date</p>
               <input type="date" value={givenDate} onChange={e=>setGivenDate(e.target.value)} max={new Date().toISOString().split("T")[0]} placeholder="dd/mm/yyyy" aria-label="Date vaccine was given" title="Date vaccine was given (optional)" style={{marginBottom:10,WebkitAppearance:"none",fontSize:"16px"}}/>
-              <p style={{margin:"8px 0 4px",fontSize:13,fontWeight:600,color:P.greenDark}}>Vaccine Details (Optional)</p>
-              <input placeholder="Batch Number" value={vaccineDetails.batchNumber} onChange={e=>setVaccineDetails(prev=>({...prev,batchNumber:e.target.value}))} style={{marginBottom:8}}/>
-              <input placeholder="Expiry Date (e.g., 12/2025)" value={vaccineDetails.expiryDate} onChange={e=>setVaccineDetails(prev=>({...prev,expiryDate:e.target.value}))} style={{marginBottom:8}}/>
-              <input placeholder="Manufacturer" value={vaccineDetails.manufacturer} onChange={e=>setVaccineDetails(prev=>({...prev,manufacturer:e.target.value}))} style={{marginBottom:8}}/>
-              <input placeholder="Date Manufactured (e.g., 01/2024)" value={vaccineDetails.dateManufactured} onChange={e=>setVaccineDetails(prev=>({...prev,dateManufactured:e.target.value}))} style={{marginBottom:10}}/>
-              <div style={{display:"flex",gap:6,marginBottom:10}}>
-                <input type="file" accept="image/*" onChange={(e)=>{
-                  const file=e.target?.files?.[0];
-                  if(!file)return;
-                  const reader=new FileReader();
-                  reader.onload=(event)=>{
-                    const preview=event.target?.result;
-                    if(!preview)return;
-                    const photoId=Date.now().toString();
-                    const newPhoto={id:photoId,path:null,preview:preview,uploadedAt:new Date().toISOString()};
-                    setVaccinePhotos(prev=>[...(prev||[]),newPhoto]);
-                    uploadPhoto(file).then(path=>{
-                      if(path){
-                        setVaccinePhotos(prev=>prev.map(p=>p.id===photoId?{...p,path:path}:p));
-                      }else{
-                        setVaccinePhotos(prev=>prev.filter(p=>p.id!==photoId));
-                      }
-                    });
-                  };
-                  reader.readAsDataURL(file);
-                }} style={{display:"none"}} aria-label="Upload vaccine photo"/>
-                <button onClick={(e)=>{
-                  e.preventDefault();
-                  const input=e.currentTarget.parentElement?.querySelector('input[type="file"]');
-                  if(input)input.click();
-                }} aria-label="Add Photo - Upload vaccine image" style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Add Photo</button>
-              </div>
-              {vaccinePhotos&&vaccinePhotos.length>0&&(
+
+              <button onClick={()=>{setVaccineDetailsArray(prev=>[...prev,{id:uid(),name:"",batch:"",expiry:"",manufacturer:"",dateManufactured:"",photos:[]}]);}} aria-label="Add vaccine details" style={{marginBottom:10,padding:"7px 12px",borderRadius:10,background:P.purpleLight,color:P.purpleDark,fontWeight:600,fontSize:12,width:"100%"}}>+ Vaccine Details</button>
+
+              {vaccineDetailsArray.length>0&&(
                 <div style={{marginBottom:10,padding:10,background:"#F8FAFC",borderRadius:10}}>
-                  <p style={{margin:"0 0 8px",fontSize:12,fontWeight:600,color:"#64748B"}}>Attached Photos ({vaccinePhotos.length})</p>
-                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-                    {vaccinePhotos.map((photo,idx)=>(
-                      <div key={photo.id} style={{position:"relative",paddingBottom:"100%",background:"white",borderRadius:8,border:`1px solid #E2E8F0`,overflow:"hidden"}}>
-                        <img src={photo.preview||photo.dataUrl||photo.path} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"cover",cursor:"pointer"}} onClick={()=>setViewingPhotoIdx(idx)} alt={`Vaccine photo ${idx+1}`}/>
-                        <button onClick={()=>setVaccinePhotos(prev=>prev.filter((p,i)=>i!==idx))} aria-label={`Delete photo ${idx+1}`} style={{position:"absolute",top:4,right:4,width:20,height:20,padding:0,borderRadius:"50%",background:"rgba(255,59,48,0.9)",color:"white",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+                  {vaccineDetailsArray.length>0&&vaccineDetailsArray.map((detail,idx)=>(
+                    <div key={detail.id} style={{marginBottom:10,padding:10,background:"white",borderRadius:8,border:`1px solid #E2E8F0`}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                        <p style={{margin:0,fontSize:12,fontWeight:600,color:"#64748B"}}>Injection #{idx+1}</p>
+                        <button onClick={()=>setVaccineDetailsArray(prev=>prev.filter(d=>d.id!==detail.id))} aria-label={`Delete detail entry ${idx+1}`} style={{padding:"2px 6px",borderRadius:6,background:P.redLight,color:P.redDark,fontSize:11,fontWeight:600}}>Delete</button>
                       </div>
-                    ))}
-                  </div>
+                      <input placeholder="Injection Name (e.g., Rotasil RTC, Pentaxim)" value={detail.name||""} onChange={e=>setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,name:e.target.value}:d))} style={{marginBottom:8}}/>
+                      <input placeholder="Batch Number" value={detail.batch||""} onChange={e=>setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,batch:e.target.value}:d))} style={{marginBottom:8}}/>
+                      <input placeholder="Expiry Date (e.g., 12/2025)" value={detail.expiry||""} onChange={e=>setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,expiry:e.target.value}:d))} style={{marginBottom:8}}/>
+                      <input placeholder="Manufacturer" value={detail.manufacturer||""} onChange={e=>setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,manufacturer:e.target.value}:d))} style={{marginBottom:8}}/>
+                      <input placeholder="Date Manufactured (e.g., 01/2024)" value={detail.dateManufactured||""} onChange={e=>setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,dateManufactured:e.target.value}:d))} style={{marginBottom:10}}/>
+                      <div style={{display:"flex",gap:6,marginBottom:10}}>
+                        <input type="file" accept="image/*" onChange={(e)=>{const file=e.target?.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=(event)=>{const preview=event.target?.result;if(!preview)return;const photoId=Date.now().toString();uploadPhoto(file).then(path=>{if(!path){errToast("Failed to upload photo");return;}setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,photos:[...(d.photos||[]),{id:photoId,path:path,preview:preview,uploadedAt:new Date().toISOString()}]}:d));}).catch(err=>{errToast(err.message||"Failed to upload photo");});};reader.readAsDataURL(file);}} style={{display:"none"}} aria-label={`Upload photo for injection ${idx+1}`}/>
+                        <button onClick={(e)=>{e.preventDefault();const input=e.currentTarget.parentElement?.querySelector('input[type="file"]');if(input)input.click();}} aria-label={`Add photo for injection ${idx+1}`} style={{flex:1,padding:"7px 12px",borderRadius:10,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Add Photo</button>
+                      </div>
+                      {detail.photos&&detail.photos.length>0&&(
+                        <div style={{marginBottom:8,padding:8,background:"#F8FAFC",borderRadius:8}}>
+                          <p style={{margin:"0 0 6px",fontSize:11,fontWeight:600,color:"#64748B"}}>Photos ({detail.photos.length})</p>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+                            {detail.photos.map((photo,pidx)=>(
+                              <div key={photo.id} style={{position:"relative",paddingBottom:"100%",background:"white",borderRadius:6,border:`1px solid #E2E8F0`,overflow:"hidden"}}>
+                                <img src={photo.preview||photo.path} style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",objectFit:"cover",cursor:"pointer"}} onClick={()=>setViewingPhotoIdx(pidx)} alt={`Injection ${idx+1} photo ${pidx+1}`}/>
+                                <button onClick={()=>setVaccineDetailsArray(prev=>prev.map(d=>d.id===detail.id?{...d,photos:d.photos.filter(p=>p.id!==photo.id)}:d))} aria-label={`Delete photo ${pidx+1}`} style={{position:"absolute",top:2,right:2,width:18,height:18,padding:0,borderRadius:"50%",background:"rgba(255,59,48,0.9)",color:"white",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
+
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>confirmMarkDone(v.id)} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
+                <button onClick={()=>{editingVaccineId===v.id?editVaccineDone(v.id):confirmMarkDone(v.id);}} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
                   {markingDoneId===v.id?"Confirming...":"Confirm"}
                 </button>
-                <button onClick={()=>{setMarkingDone(null);setGivenDate("");setOcrImage(null);setOcrData(null);setVaccinePhotos([]);setViewingPhotoIdx(null);setVaccineDetails({batchNumber:"",expiryDate:"",manufacturer:"",dateManufactured:""});}} disabled={markingDoneId===v.id} aria-label="Cancel marking vaccine as done" style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
+                <button onClick={()=>{setMarkingDone(null);setEditingVaccineId(null);setGivenDate("");setOcrImage(null);setOcrData(null);setVaccinePhotos([]);setViewingPhotoIdx(null);setVaccineDetailsArray([]);}} disabled={markingDoneId===v.id} aria-label="Cancel marking vaccine as done" style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
               </div>
             </div>
           )}
@@ -638,7 +712,9 @@ function App(){
   const[ocrError,setOcrError]=React.useState("");
   const[vaccinePhotos,setVaccinePhotos]=React.useState([]);
   const[viewingPhotoIdx,setViewingPhotoIdx]=React.useState(null);
-  const[vaccineDetails,setVaccineDetails]=React.useState({batchNumber:"",expiryDate:"",manufacturer:"",dateManufactured:""});
+  const[vaccineDetailsArray,setVaccineDetailsArray]=React.useState([]);
+  const[editingVaccineId,setEditingVaccineId]=React.useState(null);
+  const[editingDetailId,setEditingDetailId]=React.useState(null);
   const sel=profiles.find(p=>p.id===selId);
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
@@ -695,6 +771,13 @@ function App(){
 
   async function loadProfiles(uid){
     setLoading(true);
+    // Check if session is still valid
+    const{data:{session:currentSession}}=await sb.auth.getSession();
+    if(!currentSession){
+      setLoading(false);
+      setSession(null);
+      return;
+    }
     const res=await dbRun(()=>sb.from("profiles").select("*").eq("user_id",uid).order("created_at"),errToast);
     if(!res){setLoading(false);return;}
     const profs=res.data||[];
@@ -739,7 +822,11 @@ function App(){
     else setAuthErr("Confirmation email sent! Check your inbox.");
     setAuthLoading(false);
   }
-  async function signOut(){await sb.auth.signOut();}
+  async function signOut(){
+    // Clear notification cache before logout for privacy
+    try{localStorage.removeItem(NOTIFICATION_KEY);}catch{}
+    await sb.auth.signOut();
+  }
 
   // FIX #11: Check for existing profiles before migrating
   async function migrateLocalData(){
@@ -778,16 +865,16 @@ function App(){
   async function uploadPhoto(file){
     const ext=file.name.split(".").pop().toLowerCase();
     const allowed=["jpg","jpeg","png","webp","heic"];
-    if(!allowed.includes(ext)){errToast("Unsupported image format");return null;}
-    if(file.size>5*1024*1024){errToast("Photo must be under 5MB");return null;}
+    if(!allowed.includes(ext)){errToast("Unsupported image format. Allowed: JPG, PNG, WebP, HEIC");return null;}
+    if(file.size>MAX_PHOTO_SIZE){errToast("Photo must be under 5MB");return null;}
     const path=`${session.user.id}/${uid()}.${ext}`;
     const{error}=await sb.storage.from("photos").upload(path,file,{upsert:true});
-    if(error){errToast("Photo upload failed: "+error.message);return null;}
+    if(error){errToast("Failed to upload photo: "+error.message);return null;}
     return path; // store path, not public URL
   }
 
-  // Get signed URL from storage path (1 hour expiry by default)
-  async function getSignedUrl(path,expirySeconds=3600){
+  // Get signed URL from storage path
+  async function getSignedUrl(path,expirySeconds=SIGNED_URL_EXPIRY){
     if(!path)return null;
     try{
       const{data,error}=await sb.storage.from("photos").createSignedUrl(path,expirySeconds);
@@ -840,6 +927,7 @@ function App(){
         photoPath=null;
       }
       const dobChanged=editProfile.dob!==sel.dob;
+      if(dobChanged&&!confirm("Changing date of birth will recalculate all vaccine due dates. Continue?")){setSaving(false);return;}
       const{error}=await sb.from("profiles").update({
         name:editProfile.name.trim(),dob:editProfile.dob,
         avatar:editProfile.avatar,photo_url:photoPath
@@ -850,8 +938,11 @@ function App(){
           sb.from("vaccines").update({due_date:calcDue(editProfile.dob,v.age_months)}).eq("id",v.id)
         );
         const results=await Promise.all(updates);
-        const failed=results.find(r=>r.error);
-        if(failed)throw failed.error;
+        const failedResults=results.filter(r=>r.error);
+        if(failedResults.length>0){
+          const errors=failedResults.map(r=>r.error.message).join(", ");
+          throw new Error(`Failed to update ${failedResults.length} vaccine dates: ${errors}`);
+        }
       }
       setEditProfile(null);
       await loadProfiles(session.user.id);
@@ -873,44 +964,62 @@ function App(){
   }
 
   // FIX #9: Confetti only after confirmed DB write
-  async function confirmMarkDone(vid,ocrDataParam=null){
+  async function confirmMarkDone(vid,ocrDataParam=null,isEditMode=false){
     const vaccine = sel.vaccines.find(v=>v.id===vid);
     const today = new Date().toISOString().split("T")[0];
     const dateToSave = givenDate && givenDate.trim() ? givenDate : (vaccine?.due_date || today);
 
-    // Build notes from vaccine details, merging with existing notes
-    const details = [];
-    if(vaccineDetails.batchNumber) details.push(`Batch: ${vaccineDetails.batchNumber}`);
-    if(vaccineDetails.expiryDate) details.push(`Exp: ${vaccineDetails.expiryDate}`);
-    if(vaccineDetails.manufacturer) details.push(`Mfr: ${vaccineDetails.manufacturer}`);
-    if(vaccineDetails.dateManufactured) details.push(`Mfg: ${vaccineDetails.dateManufactured}`);
-    let notesToSave = vaccine?.notes || null;
-    if(details.length>0){
-      const detailsStr = details.join(", ");
-      notesToSave = notesToSave ? `${notesToSave} | ${detailsStr}` : detailsStr;
+    // Merge OCR data into first detail entry if provided
+    let detailsToSave = vaccineDetailsArray;
+    if(ocrDataParam){
+      if(detailsToSave.length===0){
+        detailsToSave=[{
+          id:uid(),
+          name:ocrDataParam.vaccineName||"",
+          batch:ocrDataParam.batchNumber||"",
+          expiry:ocrDataParam.expiryDate||"",
+          manufacturer:ocrDataParam.manufacturer||"",
+          dateManufactured:ocrDataParam.dateManufactured||"",
+          photos:[]
+        }];
+      }else{
+        detailsToSave=[{...detailsToSave[0],
+          name:ocrDataParam.vaccineName||detailsToSave[0].name||"",
+          batch:ocrDataParam.batchNumber||detailsToSave[0].batch||"",
+          expiry:ocrDataParam.expiryDate||detailsToSave[0].expiry||"",
+          manufacturer:ocrDataParam.manufacturer||detailsToSave[0].manufacturer||"",
+          dateManufactured:ocrDataParam.dateManufactured||detailsToSave[0].dateManufactured||""
+        },...detailsToSave.slice(1)];
+      }
     }
 
-    // Store photos as JSON string
-    const photosToSave = vaccinePhotos.length > 0 ? JSON.stringify(vaccinePhotos) : null;
+    // Serialize vaccine details array with photos
+    const notesToSave = serializeVaccineDetails(detailsToSave);
 
     setMarkingDoneId(vid);
     // Store original vaccine state in case we need to rollback
     const originalVaccine = sel.vaccines.find(v=>v.id===vid);
     try{
-      const updateData={done:true,done_date:dateToSave,reminder_set:false,notes:notesToSave};
-      if(photosToSave) updateData.photos=photosToSave;
+      const updateData={done:true,reminder_set:false,notes:notesToSave};
+      // Only update done_date if not in edit mode or if date changed
+      if(!isEditMode||givenDate){
+        updateData.done_date=dateToSave;
+      }
       const{error}=await sb.from("vaccines").update(updateData).eq("id",vid);
       if(error)throw error;
       // Only after DB succeeds: update optimistic local state
       setProfiles(prev=>prev.map(p=>p.id!==selId?p:{...p,
-        vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:true,done_date:dateToSave,reminder_set:false,notes:notesToSave,photos:photosToSave})
+        vaccines:p.vaccines.map(v=>v.id!==vid?v:{...v,done:true,done_date:updateData.done_date||v.done_date,reminder_set:false,notes:notesToSave})
       }));
       fireConfetti(); // only fires after DB success and local state update
       // Clear form state after everything succeeds
       setMarkingDone(null);
+      setEditingVaccineId(null);
       setGivenDate("");
       setVaccinePhotos([]);
-      setVaccineDetails({batchNumber:"",expiryDate:"",manufacturer:"",dateManufactured:""});
+      setVaccineDetailsArray([]);
+      setOcrData(null);
+      setOcrImage(null);
     }catch(e){
       errToast(e.message||"Failed to update vaccine");
       // Rollback optimistic update on error
@@ -919,6 +1028,10 @@ function App(){
       }));
       // Keep form open so user can retry without losing data
     }finally{setMarkingDoneId(null);}
+  }
+
+  async function editVaccineDone(vid){
+    await confirmMarkDone(vid,null,true);
   }
 
   async function markUndone(vid){
@@ -934,6 +1047,8 @@ function App(){
   // FIX #6: uuid for custom vaccine IDs
   async function addCustomVaccine(){
     if(!newV.name.trim()||!newV.dueDate){showToast("Name and due date required","error");return;}
+    const today=new Date().toISOString().split("T")[0];
+    if(newV.dueDate<today){showToast("Due date cannot be in the past","error");return;}
     setAddingCustom(true);
     try{
       const vid=uid();
@@ -1118,7 +1233,7 @@ function App(){
                     const f=e.target.files[0];if(!f)return;
                     setNewP(prev=>({...prev,photoFile:f}));
                     const r=new FileReader();r.onload=ev=>setNewP(prev=>({...prev,photo:ev.target.result}));r.readAsDataURL(f);
-                  }}/>
+                  }} aria-label="Upload child profile photo"/>
                 </label>
                 {newP.photo&&<button onClick={()=>setNewP({...newP,photo:null,photoFile:null,avatar:"🐶"})} style={{marginTop:6,width:"100%",padding:"6px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:12,fontWeight:600}}>Remove</button>}
               </div>
@@ -1212,7 +1327,7 @@ function App(){
                     const f=e.target.files[0];if(!f)return;
                     setEditProfile(prev=>({...prev,photoFile:f}));
                     const r=new FileReader();r.onload=ev=>setEditProfile(prev=>({...prev,photo:ev.target.result}));r.readAsDataURL(f);
-                  }}/>
+                  }} aria-label="Upload or change child profile photo"/>
                 </label>
                 {editProfile.photo&&<button onClick={()=>setEditProfile({...editProfile,photo:null,photoFile:null})} style={{marginTop:6,width:"100%",padding:"5px",borderRadius:10,background:P.redLight,color:P.redDark,fontSize:12,fontWeight:600}}>Remove</button>}
               </div>
@@ -1269,9 +1384,9 @@ function App(){
 
         {tab==="upcoming"&&(
           <>
-            {overdue.length>0&&<><p style={{margin:"0 0 8px",fontSize:12,fontWeight:700,color:P.redDark}}>🔴 OVERDUE</p>{overdue.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)}</>}
-            {upcoming7.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.yellowDark}}>⏰ THIS WEEK</p>{upcoming7.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)}</>}
-            {upcoming30.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.tealDark}}>THIS MONTH</p>{upcoming30.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)}</>}
+            {overdue.length>0&&<><p style={{margin:"0 0 8px",fontSize:12,fontWeight:700,color:P.redDark}}>🔴 OVERDUE</p>{overdue.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</>}
+            {upcoming7.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.yellowDark}}>⏰ THIS WEEK</p>{upcoming7.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</>}
+            {upcoming30.length>0&&<><p style={{margin:"10px 0 8px",fontSize:12,fontWeight:700,color:P.tealDark}}>THIS MONTH</p>{upcoming30.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</>}
             {overdue.length===0&&upcoming7.length===0&&upcoming30.length===0&&(
               <div style={{textAlign:"center",padding:"2rem 1rem"}}>
                 <p style={{fontWeight:700,color:"#1E293B",margin:"8px 0 4px"}}>All clear!</p>
@@ -1286,7 +1401,7 @@ function App(){
                     <summary style={{fontSize:12,fontWeight:600,color:"#64748B",cursor:"pointer",padding:"8px 12px",background:"#F8FAFC",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
                       <span>At {yr}</span><span style={{color:"#CBD5E1"}}>{vaxes.length} vaccines ▾</span>
                     </summary>
-                    <div style={{paddingTop:6}}>{vaxes.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)}</div>
+                    <div style={{paddingTop:6}}>{vaxes.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</div>
                   </details>
                 ))}
                 {customFuture.length>0&&(
@@ -1294,17 +1409,17 @@ function App(){
                     <summary style={{fontSize:12,fontWeight:600,color:"#64748B",cursor:"pointer",padding:"8px 12px",background:"#F8FAFC",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
                       <span>Custom vaccines</span><span style={{color:"#CBD5E1"}}>{customFuture.length} ▾</span>
                     </summary>
-                    <div style={{paddingTop:6}}>{customFuture.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)}</div>
+                    <div style={{paddingTop:6}}>{customFuture.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</div>
                   </details>
                 )}
               </div>
             )}
           </>
         )}
-        {tab==="all"&&allVax.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)}
+        {tab==="all"&&allVax.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}
         {tab==="done"&&(done.length===0
           ?<div style={{textAlign:"center",padding:"2rem"}}><p style={{color:"#94A3B8",fontSize:13}}>No vaccines marked done yet</p></div>
-          :done.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccineDetails={vaccineDetails} setVaccineDetails={setVaccineDetails} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData}/>)
+          :done.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)
         )}
         {ocrShowReview&&ocrData&&(
           <div role="presentation" style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"flex-end",zIndex:9999}} onClick={()=>{setOcrShowReview(false);setOcrImage(null);setOcrData(null);setOcrError("");}}>
