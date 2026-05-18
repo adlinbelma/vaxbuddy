@@ -250,12 +250,27 @@ function generateVaccinePDF(profile,vaccines){
   doc.text("Type",margin+170,yPos);
   yPos+=8;
 
-  // Table Rows
+  // Table Rows - Sort by age in months (birth to 18 years), custom vaccines at end
   doc.setFont("helvetica","normal");
   doc.setFontSize(9);
   doc.setTextColor(0,0,0);
 
-  vaccines.forEach((v,idx)=>{
+  const sortedVaccines=[...vaccines].sort((a,b)=>{
+    // Sort IAP vaccines by age_months (birth to 18 years)
+    if(a.custom===false&&b.custom===false){
+      return(a.age_months||0)-(b.age_months||0);
+    }
+    // Sort custom vaccines by due_date
+    if(a.custom===true&&b.custom===true){
+      return new Date(a.due_date)-new Date(b.due_date);
+    }
+    // IAP vaccines come before custom vaccines
+    if(a.custom&&!b.custom)return 1;
+    if(!a.custom&&b.custom)return -1;
+    return 0;
+  });
+
+  sortedVaccines.forEach((v,idx)=>{
     if(yPos>pageHeight-20){
       doc.addPage();
       yPos=15;
@@ -613,7 +628,7 @@ function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,se
             {!v.done&&markingDone!==v.id&&<button onClick={()=>{setMarkingDone(v.id);setGivenDate("");setVaccineDetailsArray([]);const existing=v.photos?JSON.parse(v.photos):[];setVaccinePhotos(existing);}} disabled={markingDoneId===v.id} aria-label={`Mark ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:P.green,color:"white",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id?0.6:1}}>Mark done</button>}
             {v.done&&<button onClick={()=>{setEditingVaccineId(v.id);const parsed=parseVaccineDetails(v.notes);setVaccineDetailsArray(parsed.details);setGivenDate(v.done_date);const existing=v.photos?JSON.parse(v.photos):[];setVaccinePhotos(existing);setMarkingDone(v.id);}} disabled={markingDoneId===v.id||editingVaccineId===v.id} aria-label={`Edit ${v.name} vaccination details`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id||editingVaccineId===v.id?0.6:1}}>Edit</button>}
             {v.done&&<button onClick={()=>markUndone(v.id)} aria-label={`Undo marking ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
-            {v.done&&v.photos&&<button onClick={async()=>{const photos=JSON.parse(v.photos);const withUrls=await Promise.all(photos.map(async p=>{if(p.preview)return p;const url=await getSignedUrl(p.path);return {...p,preview:url||p.dataUrl};}));setVaccinePhotos(withUrls);setViewingPhotoIdx(0);}} aria-label={`View attached photos for ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Photos</button>}
+            {v.done&&(()=>{const parsed=parseVaccineDetails(v.notes);const hasInjectionPhotos=parsed.details&&parsed.details.some(d=>d.photos&&d.photos.length>0);const hasVaccinePhotos=v.photos;return(hasVaccinePhotos||hasInjectionPhotos)&&<button onClick={async()=>{const allPhotos=[];if(hasVaccinePhotos){const photos=JSON.parse(v.photos);allPhotos.push(...photos);}if(hasInjectionPhotos){parsed.details.forEach(d=>{if(d.photos){allPhotos.push(...d.photos);}});}const withUrls=await Promise.all(allPhotos.map(async p=>{if(p.preview)return p;const url=p.path?await getSignedUrl(p.path):null;return{...p,preview:url||p.preview||p.dataUrl};}));setVaccinePhotos(withUrls);setViewingPhotoIdx(0);}} aria-label={`View attached photos for ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Photos ({(()=>{const p=parseVaccineDetails(v.notes);const injectionPhotos=p.details?p.details.reduce((sum,d)=>sum+(d.photos?d.photos.length:0),0):0;const vaccinePhotos=v.photos?JSON.parse(v.photos).length:0;return injectionPhotos+vaccinePhotos;})()})</button>;})()}
             {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} aria-label={`Delete custom vaccine ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1}}>
               {deletingId===v.id?"Deleting...":"Delete"}
             </button>}
@@ -771,13 +786,6 @@ function App(){
 
   async function loadProfiles(uid){
     setLoading(true);
-    // Check if session is still valid
-    const{data:{session:currentSession}}=await sb.auth.getSession();
-    if(!currentSession){
-      setLoading(false);
-      setSession(null);
-      return;
-    }
     const res=await dbRun(()=>sb.from("profiles").select("*").eq("user_id",uid).order("created_at"),errToast);
     if(!res){setLoading(false);return;}
     const profs=res.data||[];
@@ -1047,8 +1055,6 @@ function App(){
   // FIX #6: uuid for custom vaccine IDs
   async function addCustomVaccine(){
     if(!newV.name.trim()||!newV.dueDate){showToast("Name and due date required","error");return;}
-    const today=new Date().toISOString().split("T")[0];
-    if(newV.dueDate<today){showToast("Due date cannot be in the past","error");return;}
     setAddingCustom(true);
     try{
       const vid=uid();
@@ -1265,15 +1271,7 @@ function App(){
     const upcoming30=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>7&&getStatus(v.due_date).diff<=30);
     const future=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>30);
     const done=allVax.filter(v=>v.done);
-    const groupedFuture={};
-    future.forEach(v=>{
-      if(v.age_months==null)return;
-      const y=Math.floor(v.age_months/12);
-      const k=`${y} years`;
-      if(!groupedFuture[k])groupedFuture[k]=[];
-      groupedFuture[k].push(v);
-    });
-    const customFuture=future.filter(v=>v.age_months==null);
+    const sortedFuture=future.sort((a,b)=>new Date(a.due_date)-new Date(b.due_date));
     const TABS=[
       {key:"upcoming",label:"Due soon",count:overdue.length+upcoming7.length},
       {key:"all",label:"All",count:allVax.length},
@@ -1393,25 +1391,10 @@ function App(){
                 <p style={{fontSize:13,color:"#94A3B8"}}>No vaccines due soon</p>
               </div>
             )}
-            {(Object.keys(groupedFuture).length>0||customFuture.length>0)&&(
+            {sortedFuture.length>0&&(
               <div style={{marginTop:12}}>
                 <p style={{margin:"0 0 8px",fontSize:12,fontWeight:700,color:"#94A3B8"}}>🔮 COMING UP</p>
-                {Object.entries(groupedFuture).sort((a,b)=>parseInt(a[0])-parseInt(b[0])).map(([yr,vaxes])=>(
-                  <details key={yr} style={{marginBottom:6}}>
-                    <summary style={{fontSize:12,fontWeight:600,color:"#64748B",cursor:"pointer",padding:"8px 12px",background:"#F8FAFC",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
-                      <span>At {yr}</span><span style={{color:"#CBD5E1"}}>{vaxes.length} vaccines ▾</span>
-                    </summary>
-                    <div style={{paddingTop:6}}>{vaxes.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</div>
-                  </details>
-                ))}
-                {customFuture.length>0&&(
-                  <details style={{marginBottom:6}}>
-                    <summary style={{fontSize:12,fontWeight:600,color:"#64748B",cursor:"pointer",padding:"8px 12px",background:"#F8FAFC",borderRadius:10,display:"flex",justifyContent:"space-between"}}>
-                      <span>Custom vaccines</span><span style={{color:"#CBD5E1"}}>{customFuture.length} ▾</span>
-                    </summary>
-                    <div style={{paddingTop:6}}>{customFuture.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}</div>
-                  </details>
-                )}
+                {sortedFuture.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}
               </div>
             )}
           </>
