@@ -250,25 +250,19 @@ function generateVaccinePDF(profile,vaccines){
   doc.text("Type",margin+170,yPos);
   yPos+=8;
 
-  // Table Rows - Sort by age in months (birth to 18 years), custom vaccines at end
+  // Table Rows - Sort by age in months (both IAP and custom merged by age)
   doc.setFont("helvetica","normal");
   doc.setFontSize(9);
   doc.setTextColor(0,0,0);
 
-  const sortedVaccines=[...vaccines].sort((a,b)=>{
-    // Sort IAP vaccines by age_months (birth to 18 years)
-    if(a.custom===false&&b.custom===false){
-      return(a.age_months||0)-(b.age_months||0);
-    }
-    // Sort custom vaccines by due_date
-    if(a.custom===true&&b.custom===true){
-      return new Date(a.due_date)-new Date(b.due_date);
-    }
-    // IAP vaccines come before custom vaccines
-    if(a.custom&&!b.custom)return 1;
-    if(!a.custom&&b.custom)return -1;
-    return 0;
-  });
+  const getAgeMonthsForPdf=(v)=>{
+    if(v.age_months!=null)return v.age_months;
+    const dobMs=new Date(profile.dob).getTime();
+    const doneMs=new Date(v.done_date).getTime();
+    return(doneMs-dobMs)/(1000*60*60*24*30.44);
+  };
+
+  const sortedVaccines=[...vaccines].sort((a,b)=>getAgeMonthsForPdf(a)-getAgeMonthsForPdf(b));
 
   sortedVaccines.forEach((v,idx)=>{
     if(yPos>pageHeight-20){
@@ -573,8 +567,9 @@ async function dbRun(fn,onErr){
     if(res.error)throw res.error;
     return res;
   }catch(e){
-    console.error(e);
-    if(onErr)onErr(e.message||"Something went wrong");
+    const errorMsg=e?.message||e?.toString()||"Something went wrong";
+    console.error("[DBRun Error]",errorMsg,e);
+    if(onErr)onErr(errorMsg);
     return null;
   }
 }
@@ -720,6 +715,7 @@ function App(){
   const[deletingId,setDeletingId]=React.useState(null);
   const[menuOpen,setMenuOpen]=React.useState(false);
   const menuRef=React.useRef(null);
+  const isLoadingProfiles=React.useRef(false);
   const[ocrImage,setOcrImage]=React.useState(null);
   const[ocrData,setOcrData]=React.useState(null);
   const[ocrLoading,setOcrLoading]=React.useState(false);
@@ -748,7 +744,7 @@ function App(){
         if(session)loadProfiles(session.user.id);
         else setLoading(false);
       }else if(event==="TOKEN_REFRESHED"){
-        // Token refreshed silently - only update if session exists
+        // Token refreshed silently - just update session, don't reload profiles
         if(session)setSession(session);
       }else if(event==="SIGNED_OUT"){
         // User explicitly signed out or session actually expired
@@ -785,21 +781,40 @@ function App(){
   },[menuOpen]);
 
   async function loadProfiles(uid){
+    // Prevent concurrent calls
+    if(isLoadingProfiles.current){
+      console.log("[LoadProfiles] Already loading, skipping");
+      return;
+    }
+    isLoadingProfiles.current=true;
     setLoading(true);
-    const res=await dbRun(()=>sb.from("profiles").select("*").eq("user_id",uid).order("created_at"),errToast);
-    if(!res){setLoading(false);return;}
+    console.log("[LoadProfiles] Starting profile load");
+    const res=await dbRun(()=>{console.log("[Query] Loading profiles");return sb.from("profiles").select("id,name,dob,avatar,photo_url,user_id").eq("user_id",uid).order("created_at")},errToast);
+    if(!res){setLoading(false);isLoadingProfiles.current=false;return;}
     const profs=res.data||[];
+    console.log("[LoadProfiles] Loaded",profs.length,"profiles");
     const full=await Promise.all(profs.map(async p=>{
-      const vres=await dbRun(()=>sb.from("vaccines").select("*").eq("profile_id",p.id).order("age_months"),errToast);
-      // FIX #5: resolve signed URLs for private photos
+      console.log("[Query] Loading vaccines for profile",p.name);
+      const vres=await dbRun(()=>sb.from("vaccines").select("id,profile_id,name,done,done_date,due_date,age_months,custom,notes,photos").eq("profile_id",p.id),errToast);
+      // FIX #5: resolve signed URLs for private photos (with timeout to prevent blocking)
       let photoUrl=null;
       if(p.photo_url){
-        photoUrl=p.photo_url.startsWith("data:")?p.photo_url:await getSignedUrl(p.photo_url).catch(()=>p.photo_url);
+        if(p.photo_url.startsWith("data:")){
+          photoUrl=p.photo_url;
+        }else{
+          // Use timeout to prevent blocking on slow storage requests
+          photoUrl=await Promise.race([
+            getSignedUrl(p.photo_url).catch(()=>p.photo_url),
+            new Promise(resolve=>setTimeout(()=>resolve(p.photo_url),2000))
+          ]).catch(()=>p.photo_url);
+        }
       }
       return{...p,photo_url:photoUrl,vaccines:vres?.data||[]};
     }));
     setProfiles(full);
     setLoading(false);
+    isLoadingProfiles.current=false;
+    console.log("[LoadProfiles] Completed");
     if(Notification.permission==="granted")full.forEach(p=>scheduleReminders(p.vaccines,p.name));
   }
 
@@ -1182,7 +1197,7 @@ function App(){
           const total=p.vaccines.length,done=p.vaccines.filter(v=>v.done).length;
           const overdue=p.vaccines.filter(v=>!v.done&&new Date(v.due_date)<new Date()).length;
           const soon=p.vaccines.filter(v=>!v.done&&getStatus(v.due_date).diff>=0&&getStatus(v.due_date).diff<=7).length;
-          const pct=Math.round(done/total*100);
+          const pct=total>0?Math.round(done/total*100):0;
           const ageMs=Date.now()-new Date(p.dob).getTime();
           const ageYears=Math.floor(ageMs/1000/60/60/24/365.25);
           const ageMos=Math.floor((ageMs/1000/60/60/24/365.25%1)*12);
@@ -1266,12 +1281,20 @@ function App(){
   // ── CHILD VIEW ──
   if(view==="child"&&sel){
     const allVax=sel.vaccines;
-    const overdue=allVax.filter(v=>!v.done&&new Date(v.due_date)<new Date());
-    const upcoming7=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>=0&&getStatus(v.due_date).diff<=7);
-    const upcoming30=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>7&&getStatus(v.due_date).diff<=30);
+    const getAgeMonths=(v)=>{
+      if(v.age_months!=null)return v.age_months;
+      const dobMs=new Date(sel.dob).getTime();
+      const dueMs=new Date(v.due_date).getTime();
+      return(dueMs-dobMs)/(1000*60*60*24*30.44);
+    };
+    const sortByAge=(arr)=>[...arr].sort((a,b)=>getAgeMonths(a)-getAgeMonths(b));
+    const overdue=sortByAge(allVax.filter(v=>!v.done&&new Date(v.due_date)<new Date()));
+    const upcoming7=sortByAge(allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>=0&&getStatus(v.due_date).diff<=7));
+    const upcoming30=sortByAge(allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>7&&getStatus(v.due_date).diff<=30));
     const future=allVax.filter(v=>!v.done&&getStatus(v.due_date).diff>30);
-    const done=allVax.filter(v=>v.done);
-    const sortedFuture=future.sort((a,b)=>new Date(a.due_date)-new Date(b.due_date));
+    const done=sortByAge(allVax.filter(v=>v.done));
+    const sortedFuture=sortByAge(future);
+    const sortedAll=sortByAge(allVax);
     const TABS=[
       {key:"upcoming",label:"Due soon",count:overdue.length+upcoming7.length},
       {key:"all",label:"All",count:allVax.length},
@@ -1399,7 +1422,7 @@ function App(){
             )}
           </>
         )}
-        {tab==="all"&&allVax.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}
+        {tab==="all"&&sortedAll.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)}
         {tab==="done"&&(done.length===0
           ?<div style={{textAlign:"center",padding:"2rem"}}><p style={{color:"#94A3B8",fontSize:13}}>No vaccines marked done yet</p></div>
           :done.map(v=><VaxCard key={v.id} v={v} expanded={expanded} setExpanded={setExpanded} markingDone={markingDone} setMarkingDone={setMarkingDone} givenDate={givenDate} setGivenDate={setGivenDate} vaccinePhotos={vaccinePhotos} setVaccinePhotos={setVaccinePhotos} viewingPhotoIdx={viewingPhotoIdx} setViewingPhotoIdx={setViewingPhotoIdx} markingDoneId={markingDoneId} deletingId={deletingId} confirmMarkDone={confirmMarkDone} markUndone={markUndone} deleteCustomVaccine={deleteCustomVaccine} uploadPhoto={uploadPhoto} getSignedUrl={getSignedUrl} getStatus={getStatus} getAgeLabel={getAgeLabel} P={P} ocrImage={ocrImage} setOcrImage={setOcrImage} ocrData={ocrData} setOcrData={setOcrData} vaccineDetailsArray={vaccineDetailsArray} setVaccineDetailsArray={setVaccineDetailsArray} editingVaccineId={editingVaccineId} setEditingVaccineId={setEditingVaccineId} editVaccineDone={editVaccineDone}/>)
