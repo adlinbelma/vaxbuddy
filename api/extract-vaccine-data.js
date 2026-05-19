@@ -66,12 +66,28 @@ Return ONLY the JSON object, no additional text or explanation.`
     console.log('Grok response status:', grokResponse.status);
     console.log('Grok response data:', JSON.stringify(data, null, 2));
 
-    if (!grokResponse.ok || !data.choices?.[0]?.message?.content) {
+    if (!grokResponse.ok) {
       console.error('Grok API error - Status:', grokResponse.status, 'Data:', JSON.stringify(data, null, 2));
       return response.status(400).json({ error: 'Grok API failed: ' + (data.error?.message || JSON.stringify(data)) });
     }
 
-    const content = data.choices[0].message.content.trim();
+    // Extract text content from Grok response (handles both response formats)
+    let content = '';
+    if (data.choices?.[0]?.message?.content) {
+      // OpenAI format
+      content = data.choices[0].message.content.trim();
+    } else if (data.content && Array.isArray(data.content)) {
+      // Grok format - content is an array with thinking and text objects
+      const textContent = data.content.find(item => item.type === 'text');
+      if (textContent) {
+        content = textContent.text.trim();
+      }
+    }
+
+    if (!content) {
+      console.error('No content found in Grok response');
+      return response.status(400).json({ error: 'Failed to extract vaccine data from image' });
+    }
 
     // Parse JSON from response
     let extractedData;
