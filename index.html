@@ -511,8 +511,8 @@ function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,se
             {v.done&&<button onClick={()=>{setEditingVaccineId(v.id);const parsed=parseVaccineDetails(v.notes);setVaccineDetailsArray(parsed.details);setGivenDate(v.done_date);const existing=v.photos?JSON.parse(v.photos):[];setVaccinePhotos(existing);setMarkingDone(v.id);}} disabled={markingDoneId===v.id||editingVaccineId===v.id} aria-label={`Edit ${v.name} vaccination details`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12,opacity:markingDoneId===v.id||editingVaccineId===v.id?0.6:1}}>Edit</button>}
             {v.done&&<button onClick={()=>markUndone(v.id)} aria-label={`Undo marking ${v.name} as done`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>Undo</button>}
             {v.done&&(()=>{const parsed=parseVaccineDetails(v.notes);const hasInjectionPhotos=parsed.details&&parsed.details.some(d=>d.photos&&d.photos.length>0);const hasVaccinePhotos=v.photos;return(hasVaccinePhotos||hasInjectionPhotos)&&<button onClick={async()=>{const allPhotos=[];if(hasVaccinePhotos){const photos=JSON.parse(v.photos);allPhotos.push(...photos);}if(hasInjectionPhotos){parsed.details.forEach(d=>{if(d.photos){allPhotos.push(...d.photos);}});}const withUrls=await Promise.all(allPhotos.map(async p=>{if(p.preview)return p;const url=p.path?await getSignedUrl(p.path):null;return{...p,preview:url||p.preview||p.dataUrl};}));setVaccinePhotos(withUrls);setViewingPhotoIdx(0);}} aria-label={`View attached photos for ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:"#F1F5F9",color:"#64748B",fontWeight:600,fontSize:12}}>📸 Photos ({(()=>{const p=parseVaccineDetails(v.notes);const injectionPhotos=p.details?p.details.reduce((sum,d)=>sum+(d.photos?d.photos.length:0),0):0;const vaccinePhotos=v.photos?JSON.parse(v.photos).length:0;return injectionPhotos+vaccinePhotos;})()})</button>;})()}
-            {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} aria-label={`Delete custom vaccine ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1}}>
-              {deletingId===v.id?"Deleting...":"Delete"}
+            {v.custom&&<button onClick={()=>deleteCustomVaccine(v.id)} disabled={deletingId===v.id} aria-label={`Delete custom vaccine ${v.name}`} style={{padding:"7px 14px",borderRadius:20,background:P.redLight,color:P.redDark,fontWeight:600,fontSize:12,opacity:deletingId===v.id?0.6:1,display:"flex",alignItems:"center",gap:4,justifyContent:"center"}}>
+              {deletingId===v.id?<><div style={{width:10,height:10,border:`2px solid rgba(220,38,38,0.3)`,borderTop:`2px solid ${P.redDark}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>Deleting...</>:"Delete"}
             </button>}
           </div>
           {markingDone===v.id&&(
@@ -559,8 +559,8 @@ function VaxCard({v,expanded,setExpanded,markingDone,setMarkingDone,givenDate,se
               )}
 
               <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{editingVaccineId===v.id?editVaccineDone(v.id):confirmMarkDone(v.id);}} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1}}>
-                  {markingDoneId===v.id?"Confirming...":"Confirm"}
+                <button onClick={()=>{editingVaccineId===v.id?editVaccineDone(v.id):confirmMarkDone(v.id);}} disabled={markingDoneId===v.id} aria-label={`Confirm ${v.name} vaccination`} style={{flex:1,padding:"8px",borderRadius:12,background:P.green,color:"white",fontWeight:700,fontSize:13,opacity:markingDoneId===v.id?0.6:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                  {markingDoneId===v.id?<><div style={{width:14,height:14,border:`2px solid rgba(255,255,255,0.4)`,borderTop:`2px solid white`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><span>Confirming...</span></>:"Confirm"}
                 </button>
                 <button onClick={()=>{setMarkingDone(null);setEditingVaccineId(null);setGivenDate("");setOcrImage(null);setOcrData(null);setVaccinePhotos([]);setViewingPhotoIdx(null);setVaccineDetailsArray([]);}} disabled={markingDoneId===v.id} aria-label="Cancel marking vaccine as done" style={{padding:"8px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",fontSize:13,opacity:markingDoneId===v.id?0.5:1}}>Cancel</button>
               </div>
@@ -613,10 +613,18 @@ function App(){
   const[vaccineDetailsArray,setVaccineDetailsArray]=React.useState([]);
   const[editingVaccineId,setEditingVaccineId]=React.useState(null);
   const[editingDetailId,setEditingDetailId]=React.useState(null);
+  const[pullRefresh,setPullRefresh]=React.useState(0);
+  const pullStartY=React.useRef(0);
   const sel=profiles.find(p=>p.id===selId);
+  const CACHE_KEY="vaxbuddy_profiles_cache";
+  const CACHE_TTL=30*60*1000; // 30 minutes
 
   function showToast(msg,type="success"){setToast({msg,type});setTimeout(()=>setToast(null),3500);}
   function errToast(msg){showToast(msg,"error");}
+
+  function getCache(){try{const cached=JSON.parse(localStorage.getItem(CACHE_KEY));if(cached&&Date.now()-cached.timestamp<CACHE_TTL)return cached.data;localStorage.removeItem(CACHE_KEY);}catch{}return null;}
+  function setCache(data){try{localStorage.setItem(CACHE_KEY,JSON.stringify({data,timestamp:Date.now()}));}catch{}}
+  function clearCache(){try{localStorage.removeItem(CACHE_KEY);}catch{}}
 
   // FIX #4: Handle session expiry globally
   React.useEffect(()=>{
@@ -667,15 +675,56 @@ function App(){
     }
   },[menuOpen]);
 
-  async function loadProfiles(uid){
+  React.useEffect(()=>{
+    const handleTouchStart=(e)=>{
+      if(window.scrollY===0){pullStartY.current=e.touches[0].clientY;}
+    };
+    const handleTouchMove=(e)=>{
+      if(pullStartY.current>0&&window.scrollY===0){
+        const diff=e.touches[0].clientY-pullStartY.current;
+        if(diff>0)setPullRefresh(Math.min(diff,80));
+        else{pullStartY.current=0;setPullRefresh(0);}
+      }
+    };
+    const handleTouchEnd=()=>{
+      if(pullRefresh>60&&session){
+        clearCache();loadProfiles(session.user.id,true);showToast("Refreshing...");
+      }
+      setPullRefresh(0);pullStartY.current=0;
+    };
+    document.addEventListener("touchstart",handleTouchStart);
+    document.addEventListener("touchmove",handleTouchMove,{passive:true});
+    document.addEventListener("touchend",handleTouchEnd);
+    return()=>{
+      document.removeEventListener("touchstart",handleTouchStart);
+      document.removeEventListener("touchmove",handleTouchMove);
+      document.removeEventListener("touchend",handleTouchEnd);
+    };
+  },[pullRefresh,session]);
+
+  async function loadProfiles(uid,forceRefresh=false){
     // Prevent concurrent calls
     if(isLoadingProfiles.current){
       console.log("[LoadProfiles] Already loading, skipping");
       return;
     }
     isLoadingProfiles.current=true;
+
+    // Check cache first (unless forced refresh)
+    if(!forceRefresh){
+      const cached=getCache();
+      if(cached){
+        console.log("[LoadProfiles] Using cached data");
+        setProfiles(cached);
+        setLoading(false);
+        isLoadingProfiles.current=false;
+        if(Notification.permission==="granted")cached.forEach(p=>scheduleReminders(p.vaccines,p.name));
+        return;
+      }
+    }
+
     setLoading(true);
-    console.log("[LoadProfiles] Starting profile load");
+    console.log("[LoadProfiles] Starting profile load",forceRefresh?"(forced refresh)":"");
     const res=await dbRun(()=>{console.log("[Query] Loading profiles");return sb.from("profiles").select("id,name,dob,avatar,photo_url,user_id").eq("user_id",uid).order("created_at")},errToast);
     if(!res){setLoading(false);isLoadingProfiles.current=false;return;}
     const profs=res.data||[];
@@ -699,6 +748,7 @@ function App(){
       return{...p,photo_url:photoUrl,vaccines:vres?.data||[]};
     }));
     setProfiles(full);
+    setCache(full);
     setLoading(false);
     isLoadingProfiles.current=false;
     console.log("[LoadProfiles] Completed");
@@ -751,7 +801,7 @@ function App(){
       for(const p of localData.profiles){
         const{data:prof,error}=await sb.from("profiles").insert({
           id:uid(),user_id:session.user.id,name:p.name,dob:p.dob,avatar:p.avatar,photo_url:p.photo||null
-        }).select().single();
+        }).select("id").single();
         if(error)throw error;
         if(prof){
           const vaxRows=p.vaccines.map(v=>({
@@ -1044,6 +1094,13 @@ function App(){
     }catch(e){errToast(e.message||"Failed to delete vaccine");}finally{setDeletingId(null);}
   }
 
+  // ── Loader ──
+  const Loader=({size=32,inline=false})=>(
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",width:inline?undefined:"100%"}}>
+      <div style={{width:size,height:size,border:`3px solid ${P.purpleLight}`,borderTop:`3px solid ${P.purple}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+    </div>
+  );
+
   // ── Toast ──
   const Toast=()=>toast?(
     <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",
@@ -1109,6 +1166,9 @@ function App(){
     return(
       <div style={{padding:"1.5rem 1rem 2rem",fontFamily:"system-ui,sans-serif"}}>
         <Toast/>
+        {pullRefresh>0&&<div style={{position:"fixed",top:0,left:0,right:0,height:pullRefresh,background:`linear-gradient(180deg,${P.purpleLight},transparent)`,display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}}>
+          {pullRefresh>60&&<div style={{width:24,height:24,border:`3px solid ${P.purple}`,borderTop:`3px solid transparent`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>}
+        </div>}
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
           <div>
             <h1 style={{fontSize:24,fontWeight:800,background:`linear-gradient(135deg,${P.pink},${P.purple})`,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",margin:0}}>VaxBuddy 💉</h1>
@@ -1122,7 +1182,7 @@ function App(){
             <p style={{margin:"0 0 4px",fontWeight:700,fontSize:13,color:P.purpleDark}}>📦 Local data found!</p>
             <p style={{margin:"0 0 10px",fontSize:12,color:P.purple}}>{localData.profiles.length} child profile(s) on this device. Import to your account?</p>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={migrateLocalData} disabled={migrating} style={{flex:1,padding:"8px",borderRadius:10,background:P.purple,color:"white",fontWeight:700,fontSize:12}}>{migrating?"Importing...":"Yes, import"}</button>
+              <button onClick={migrateLocalData} disabled={migrating} style={{flex:1,padding:"8px",borderRadius:10,background:P.purple,color:"white",fontWeight:700,fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>{migrating?<><div style={{width:12,height:12,border:`2px solid rgba(255,255,255,0.3)`,borderTop:`2px solid white`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><span>Importing...</span></>:"Yes, import"}</button>
               <button onClick={()=>{setLocalData(null);localStorage.removeItem(LOCAL_KEY);}} style={{padding:"8px 12px",borderRadius:10,background:"white",color:"#64748B",fontSize:12}}>Discard</button>
             </div>
           </div>
@@ -1212,8 +1272,8 @@ function App(){
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={addProfile} disabled={saving||!newP.name||!newP.dob} aria-label="Create child profile"
-                style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontWeight:700,opacity:(saving||!newP.name||!newP.dob)?0.6:1}}>
-                {saving?"Saving...":"Create profile"}
+                style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.pink},${P.purple})`,color:"white",fontWeight:700,opacity:(saving||!newP.name||!newP.dob)?0.6:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                {saving?<><Loader size={18} inline/><span>Creating...</span></>:"Create profile"}
               </button>
               <button onClick={()=>{setShowAdd(false);setNewP({name:"",dob:"",avatar:"🐶",photo:null,photoFile:null});}} aria-label="Cancel adding profile" style={{padding:"10px 16px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
             </div>
@@ -1269,7 +1329,7 @@ function App(){
                   <span>Edit Profile</span>
                 </button>
                 <button onClick={()=>{deleteProfile(sel.id);setMenuOpen(false);}} disabled={deletingId===sel.id} aria-label="Delete child profile permanently" role="menuitem" style={{display:"flex",alignItems:"center",gap:10,width:"100%",padding:"12px 14px",border:"none",background:"none",cursor:"pointer",fontSize:14,color:P.redDark,fontWeight:500,opacity:deletingId===sel.id?0.5:1}}>
-                  <span>{deletingId===sel.id?"Deleting...":"Delete Profile"}</span>
+                  {deletingId===sel.id?<><div style={{width:12,height:12,border:`2px solid rgba(220,38,38,0.3)`,borderTop:`2px solid ${P.redDark}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/><span>Deleting...</span></>:<span>Delete Profile</span>}
                 </button>
               </div>
             )}
@@ -1306,8 +1366,8 @@ function App(){
             {editProfile.dob!==sel.dob&&<div style={{background:P.yellowLight,borderRadius:10,padding:"8px 12px",marginBottom:12}}><p style={{margin:0,fontSize:12,color:P.yellowDark,fontWeight:600}}>Changing DOB recalculates all IAP vaccine due dates. Custom vaccine dates are unchanged.</p></div>}
             <div style={{display:"flex",gap:8}}>
               <button onClick={saveEditProfile} disabled={saving||!editProfile.name||!editProfile.dob} aria-label="Save profile changes"
-                style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(saving||!editProfile.name||!editProfile.dob)?0.6:1}}>
-                {saving?"Saving...":"Save changes"}
+                style={{flex:1,padding:10,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(saving||!editProfile.name||!editProfile.dob)?0.6:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                {saving?<><Loader size={18} inline/><span>Saving...</span></>:"Save changes"}
               </button>
               <button onClick={()=>setEditProfile(null)} aria-label="Cancel profile edit" style={{padding:"10px 16px",borderRadius:12,background:"#F1F5F9",color:"#64748B"}}>Cancel</button>
             </div>
@@ -1340,8 +1400,8 @@ function App(){
             <input type="date" value={newV.dueDate} onChange={e=>setNewV({...newV,dueDate:e.target.value})} min={sel.dob} max={new Date(new Date(sel.dob).getFullYear()+18,new Date(sel.dob).getMonth(),new Date(sel.dob).getDate()).toISOString().split("T")[0]} aria-label="Vaccine due date" title="Vaccine due date" style={{marginBottom:8,WebkitAppearance:"none",fontSize:"16px"}}/>
             <input placeholder="Notes (optional)" value={newV.notes} onChange={e=>setNewV({...newV,notes:e.target.value})} style={{marginBottom:12}}/>
             <div style={{display:"flex",gap:8}}>
-              <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate||addingCustom} aria-label="Add custom vaccine" style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate||addingCustom)?0.6:1}}>
-                {addingCustom?"Adding...":"Add custom"}
+              <button onClick={addCustomVaccine} disabled={!newV.name||!newV.dueDate||addingCustom} aria-label="Add custom vaccine" style={{flex:1,padding:9,borderRadius:12,background:`linear-gradient(135deg,${P.purple},${P.teal})`,color:"white",fontWeight:700,opacity:(!newV.name||!newV.dueDate||addingCustom)?0.6:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                {addingCustom?<><Loader size={16} inline/><span>Adding...</span></>:"Add custom"}
               </button>
               <button onClick={()=>{setShowCustom(false);setNewV({name:"",dueDate:"",notes:""});}} disabled={addingCustom} aria-label="Cancel adding custom vaccine" style={{padding:"9px 14px",borderRadius:12,background:"#F1F5F9",color:"#64748B",opacity:addingCustom?0.5:1}}>Cancel</button>
             </div>
