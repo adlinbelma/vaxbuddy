@@ -24,6 +24,7 @@ yarn.lock
 dist/
 build/
 .next/
+config.js
 
 # Logs
 npm-debug.log*
@@ -42,3 +43,4 @@ coverage/
 *.log
 .cache
 .claude/launch.json
+QUERIES_GUIDE.md

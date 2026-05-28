@@ -1,0 +1,12 @@
+{
+  "name": "vaxbuddy",
+  "version": "1.0.0",
+  "description": "Vaccine tracking app with Supabase and Grok Vision",
+  "scripts": {
+    "dev": "node build.js && python3 -m http.server 8000",
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "dotenv": "^16.0.0"
+  }
+}
