@@ -44,3 +44,4 @@ coverage/
 .cache
 .claude/launch.json
 QUERIES_GUIDE.md
+HANDOFF.md
