@@ -1,0 +1,7 @@
+{
+  "name": "vaxbuddy",
+  "version": "1.0.0",
+  "description": "Vaccine tracking app with Catalyst backend",
+  "homepage": "/index.html",
+  "login_redirect": "/"
+}
