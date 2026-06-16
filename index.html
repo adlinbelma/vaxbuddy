@@ -174,7 +174,9 @@ function serializeVaccineDetails(detailsArray){
   // Filter out entries with no fields filled
   const filtered=detailsArray.filter(d=>d.name||d.batch||d.expiry||d.manufacturer||d.dateManufactured||d.photos?.length);
   if(filtered.length===0)return null;
-  return JSON.stringify({details:filtered});
+  // Strip base64 preview/dataUrl blobs — only keep storage path + metadata
+  const clean=filtered.map(d=>({...d,photos:(d.photos||[]).map(({preview,dataUrl,...rest})=>rest)}));
+  return JSON.stringify({details:clean});
 }
 
 function scheduleReminders(vaccines,childName){
@@ -732,7 +734,7 @@ function App(){
     console.log("[LoadProfiles] Loaded",profs.length,"profiles");
     const full=await Promise.all(profs.map(async p=>{
       console.log("[Query] Loading vaccines for profile",p.name);
-      const vres=await dbRun(()=>sb.from("vaccines").select("id,profile_id,name,done,done_date,due_date,age_months,custom,notes,photos").eq("profile_id",p.id),errToast);
+      const vres=await dbRun(()=>sb.from("vaccines").select("id,profile_id,name,done,done_date,due_date,age_months,custom,notes").eq("profile_id",p.id),errToast);
       // FIX #5: resolve signed URLs for private photos (with timeout to prevent blocking)
       let photoUrl=null;
       if(p.photo_url){
